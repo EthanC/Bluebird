@@ -1,0 +1,18 @@
+{
+    "twitter": {
+        "apiKey": "XXXXXXXXXXXXXXXXXXXXXXXXX",
+        "apiSecret": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "accessToken": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "accessSecret": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    },
+    "webhook": {
+        "avatarURL": "https://i.imgur.com/B6M9z3R.png",
+        "color": "1da1f2",
+        "url": "https://canary.discordapp.com/api/webhooks/XXXXXXXXXXXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "username": "Bluebird"
+    },
+    "usernames": {
+        "available": ["Twitter", "Jack"],
+        "unavailable": []
+    }
+}
