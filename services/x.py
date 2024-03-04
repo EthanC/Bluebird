@@ -189,9 +189,18 @@ class X:
 
                         continue
 
+                postId: str | None = result.get("rest_id")
+
+                # rest_id is sometimes within a tweet object.
+                if not postId:
+                    postId = result.get("tweet", {}).get("rest_id")
+
+                if not postId:
+                    raise Exception("rest_id is null")
+
                 posts.append(
                     {
-                        "postId": int(result["rest_id"]),
+                        "postId": postId,
                         "timestamp": int(
                             datetime.strptime(
                                 result["legacy"]["created_at"],

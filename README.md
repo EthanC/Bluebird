@@ -8,7 +8,7 @@ Bluebird monitors users on X and reports new posts via Discord.
 
 Although not required, a [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) is recommended for notifications.
 
-An X account is required for API credentials. It is recommended to use a throwaway account due to use of the internal API.
+An X account is required. It is recommended to use a throwaway account due to use of the internal API.
 
 **Environment Variables:**
 
