@@ -214,9 +214,6 @@ class X:
         if len(posts) > 0:
             logger.trace(f"[@{username}] {posts}")
 
-        with open("_response.json", "w+") as file:
-            file.write(json.dumps(res.json(), indent=4))
-
         return posts
 
     def GetPost(username: str, postId: int) -> dict:
