@@ -189,18 +189,13 @@ class X:
 
                         continue
 
-                postId: str | None = result.get("rest_id")
-
-                # rest_id is sometimes within a tweet object.
-                if not postId:
-                    postId = result.get("tweet", {}).get("rest_id")
-
-                if not postId:
-                    raise Exception("rest_id is null")
+                # result data is sometimes within a tweet object.
+                if (not result.get("rest_id")) or (not result.get("legacy")):
+                    result = result["tweet"]
 
                 posts.append(
                     {
-                        "postId": postId,
+                        "postId": int(result["rest_id"]),
                         "timestamp": int(
                             datetime.strptime(
                                 result["legacy"]["created_at"],
@@ -218,6 +213,9 @@ class X:
 
         if len(posts) > 0:
             logger.trace(f"[@{username}] {posts}")
+
+        with open("_response.json", "w+") as file:
+            file.write(json.dumps(res.json(), indent=4))
 
         return posts
 
