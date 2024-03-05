@@ -30,7 +30,7 @@ class X:
             logger.opt(exception=e).error(f"[@{username}] Failed to get user")
 
         if userId:
-            logger.trace(f"[@{username}] Found userid {userId}")
+            logger.trace(f"[@{username}] Found userId {userId}")
 
         return userId
 
@@ -236,6 +236,6 @@ class X:
             logger.opt(exception=e).error(f"[@{username}] Failed to get post {postId}")
 
         if post:
-            logger.trace(f"[@{username}] {post}")
+            logger.trace(f"[@{username}] Found post {postId} {post}")
 
         return post
