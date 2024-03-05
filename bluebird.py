@@ -109,7 +109,7 @@ class Bluebird:
 
         while True:
             # Randomize cooldown to mimic natural behavior.
-            cooldownMin: int = int(environ.get("COOLDOWN_MAX_TIME", 60))
+            cooldownMin: int = int(environ.get("COOLDOWN_MIN_TIME", 60))
             cooldownMax: int = int(environ.get("COOLDOWN_MAX_TIME", 300))
 
             cooldown: int = randint(cooldownMin, cooldownMax)

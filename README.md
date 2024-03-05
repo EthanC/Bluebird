@@ -18,7 +18,8 @@ An X account is required. It is recommended to use a throwaway account due to us
 -   `USERS_ALL`: Comma-separated list of [X](https://x.com/) usernames to monitor for all posts.
 -   `USERS_TOP`: Comma-separated list of [X](https://x.com/) usernames to monitor for top-level posts only.
 -   `USERS_MEDIA`: Comma-separated list of [X](https://x.com/) usernames to monitor for media posts only.
--   `COOLDOWN_MAX_TIME`: Maximum randomized cooldown time between checking for new posts (default is 60).
+-   `COOLDOWN_MIN_TIME`: Minimum randomized cooldown time between checking for new posts (default is 60).
+-   `COOLDOWN_MAX_TIME`: Maximum randomized cooldown time between checking for new posts (default is 300).
 -   `X_CSRF_TOKEN`: CSRF Token obtained via request inspection on X.
 -   `X_AUTH_TOKEN`: Cookie Auth Token obtained via request inspection on X.
 -   `X_BEARER_TOKEN`: Authentication Bearer Token obtained via request inspection on X.
@@ -40,7 +41,8 @@ services:
       USERS_ALL: Mxtive,spectatorindex,Breaking911
       USERS_TOP: X,XData
       USERS_MEDIA: archillect
-      COOLDOWN_MAX_TIME: 60
+      COOLDOWN_MIN_TIME: 60
+      COOLDOWN_MAX_TIME: 300
       X_CSRF_TOKEN: XXXXXXXX
       X_AUTH_TOKEN: XXXXXXXX
       X_BEARER_TOKEN: XXXXXXXX
