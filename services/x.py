@@ -146,7 +146,7 @@ class X:
                 reset: int = int(res.headers.get("x-rate-limit-reset", now + 300))
                 backoff: int = reset - now
 
-                logger.info(f"[@{username}] Sleeping for {backoff:,}s due to ratelimit")
+                logger.info(f"[@{username}] Waiting {backoff:,}s due to ratelimit")
 
                 sleep(backoff)
             else:

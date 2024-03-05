@@ -107,27 +107,18 @@ class Bluebird:
         new post detection.
         """
 
-        # Stagger the watcher threads to ease ratelimit concerns.
-        delay: int = randint(1, 30)
-        firstRun: bool = True
-
-        logger.info(f"[@{username}] Delayed watcher thread by {delay:,}s")
-
-        sleep(delay)
-
         while True:
-            if not firstRun:
-                # Randomize cooldown to mimic natural behavior.
-                cooldownMax: int = int(environ.get("COOLDOWN_MAX_TIME", 60))
-                cooldown: int = randint(int(cooldownMax / 2), cooldownMax)
+            # Randomize cooldown to mimic natural behavior.
+            cooldownMin: int = int(environ.get("COOLDOWN_MAX_TIME", 60))
+            cooldownMax: int = int(environ.get("COOLDOWN_MAX_TIME", 300))
 
-                logger.info(
-                    f"[@{username}] Waiting {cooldown:,}s before checking for new posts"
-                )
+            cooldown: int = randint(cooldownMin, cooldownMax)
 
-                sleep(cooldown)
+            logger.info(
+                f"[@{username}] Waiting {cooldown:,}s before checking for new posts"
+            )
 
-            firstRun = False
+            sleep(cooldown)
 
             posts: list[dict[str, int | str]] = X.GetUserPosts(
                 username,
@@ -150,6 +141,7 @@ class Bluebird:
                     f"[@{username}] Watching for new posts after {posts[-1]["postId"]} ({posts[-1]["timestamp"]})"
                 )
                 logger.debug(f"https://x.com/{username}/status/{posts[-1]["postId"]}")
+                logger.debug(self.state)
 
                 continue
 
@@ -173,6 +165,12 @@ class Bluebird:
                     Bluebird.NotifyPost(username, details)
 
             self.state[username] = posts[-1]["timestamp"]
+
+            logger.info(
+                f"[@{username}] Watching for new posts after {posts[-1]["postId"]} ({posts[-1]["timestamp"]})"
+            )
+            logger.debug(f"https://x.com/{username}/status/{posts[-1]["postId"]}")
+            logger.debug(self.state)
 
     def NotifyPost(username: str, post: dict) -> None:
         """Send a Discord Embed object for the specified X post."""
