@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from os import environ
 from random import randint
 from sys import exit, stdout
@@ -108,6 +109,13 @@ class Bluebird:
         """
 
         while True:
+            # Watch for posts after the current moment if we haven't
+            # yet seen a post for this user.
+            if not self.state.get(username):
+                self.state[username] = int(datetime.now().timestamp())
+
+                logger.debug(f"[@{username}] {self.state}")
+
             # Randomize cooldown to mimic natural behavior.
             cooldownMin: int = int(environ.get("COOLDOWN_MIN_TIME", 60))
             cooldownMax: int = int(environ.get("COOLDOWN_MAX_TIME", 300))
@@ -127,23 +135,11 @@ class Bluebird:
                 onlyMedia=media,
             )
 
-            # We didn't get any posts. Sleep then try again.
+            # We didn't get any posts. Try again.
             if len(posts) <= 0:
                 continue
 
-            # We don't have the latest post timestamp saved. This is
-            # likely a fresh run of the script. Set the latest post
-            # timestamp, then restart the loop.
-            if not self.state.get(username):
-                self.state[username] = posts[-1]["timestamp"]
-
-                logger.info(
-                    f"[@{username}] Watching for new posts after {posts[-1]["postId"]} ({posts[-1]["timestamp"]})"
-                )
-                logger.debug(f"https://x.com/{username}/status/{posts[-1]["postId"]}")
-                logger.debug(self.state)
-
-                continue
+            latest: dict[str, int | str] = posts[-1]
 
             for post in posts:
                 if self.state[username] >= post["timestamp"]:
@@ -164,13 +160,13 @@ class Bluebird:
                 if details:
                     Bluebird.NotifyPost(username, details)
 
-            self.state[username] = posts[-1]["timestamp"]
+            self.state[username] = latest["timestamp"]
 
             logger.info(
-                f"[@{username}] Watching for new posts after {posts[-1]["postId"]} ({posts[-1]["timestamp"]})"
+                f"[@{username}] Watching for new posts after {latest["postId"]} ({latest["timestamp"]})"
             )
-            logger.debug(f"https://x.com/{username}/status/{posts[-1]["postId"]}")
-            logger.debug(self.state)
+            logger.debug(f"https://x.com/{username}/status/{latest["postId"]}")
+            logger.debug(f"[@{username}] {self.state}")
 
     def NotifyPost(username: str, post: dict) -> None:
         """Send a Discord Embed object for the specified X post."""
