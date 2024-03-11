@@ -47,6 +47,7 @@ services:
       X_AUTH_TOKEN: XXXXXXXX
       X_BEARER_TOKEN: XXXXXXXX
       DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX
+    restart: unless-stopped
 ```
 
 ### Standalone
