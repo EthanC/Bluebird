@@ -111,8 +111,10 @@ class X:
                 "https://twitter.com/i/api/graphql/XicnWRbyQ3WgVY__VataBQ/UserTweets"
             )
 
+        res: Response | None = None
+
         try:
-            res: Response = httpx.get(
+            res = httpx.get(
                 endpoint,
                 params={
                     "variables": json.dumps(variables),
@@ -141,7 +143,7 @@ class X:
 
                 entries = instruction["entries"]
         except Exception as e:
-            if res.status_code == 429:
+            if (res) and (res.status_code == 429):
                 now: int = int(datetime.now().timestamp())
                 reset: int = int(res.headers.get("x-rate-limit-reset", now + 300))
                 backoff: int = reset - now
