@@ -173,7 +173,10 @@ class X:
                 continue
 
             try:
-                result: dict = content["itemContent"]["tweet_results"]["result"]
+                result: dict = content["itemContent"]["tweet_results"].get("result")
+
+                if not result:
+                    raise RuntimeError("unable to locate data in tweet_results")
 
                 if not includeReposts:
                     if result["legacy"].get("retweeted_status_result"):
@@ -184,7 +187,9 @@ class X:
                         continue
 
                 if onlyMedia:
-                    if not result["legacy"]["entities"].get("media"):
+                    legacy: dict = result.get("legacy")
+
+                    if (legacy) and (not legacy["entities"].get("media")):
                         logger.debug(
                             f"[@{username}] Skipped {entry["entryId"]} due to lack of media"
                         )
@@ -193,7 +198,10 @@ class X:
 
                 # result data is sometimes within a tweet object.
                 if (not result.get("rest_id")) or (not result.get("legacy")):
-                    result = result["tweet"]
+                    result = result.get("tweet")
+
+                if not result:
+                    raise RuntimeError("unable to locate post data in result")
 
                 posts.append(
                     {
