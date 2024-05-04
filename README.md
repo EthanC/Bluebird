@@ -24,10 +24,10 @@ An X account is required. It is recommended to use a throwaway account due to us
 -   `USERS_MEDIA`: Comma-separated list of [X](https://x.com/) usernames to monitor for media posts only.
 -   `COOLDOWN_MIN_TIME`: Minimum randomized cooldown time between checking for new posts (default is 60).
 -   `COOLDOWN_MAX_TIME`: Maximum randomized cooldown time between checking for new posts (default is 300).
--   `X_CSRF_TOKEN`: CSRF Token obtained via request inspection on X.
--   `X_AUTH_TOKEN`: Cookie Auth Token obtained via request inspection on X.
--   `X_BEARER_TOKEN`: Authentication Bearer Token obtained via request inspection on X.
--   `DISCORD_WEBHOOK_URL`: [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) URL to receive available username notifications.
+-   `X_CSRF_TOKEN`: CSRF Token obtained via request inspection on [X](https://x.com/).
+-   `X_AUTH_TOKEN`: Cookie Auth Token obtained via request inspection on [X](https://x.com/).
+-   `X_BEARER_TOKEN`: Authentication Bearer Token obtained via request inspection on [X](https://x.com/).
+-   `DISCORD_WEBHOOK_URL`: [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) URL to receive new post notifications.
 
 ### Docker (Recommended)
 
