@@ -4,6 +4,10 @@
 
 Bluebird monitors users on X and reports new posts via Discord.
 
+<p align="center">
+    <img src="https://i.imgur.com/7r4eMLt.png" draggable="false">
+</p>
+
 ## Setup
 
 Although not required, a [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) is recommended for notifications.
