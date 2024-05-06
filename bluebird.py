@@ -158,7 +158,14 @@ class Bluebird:
                 details: dict = X.GetPost(username, post["postId"])
 
                 if details:
-                    Bluebird.NotifyPost(username, details)
+                    embeds: list[DiscordEmbed] = Bluebird.BuildEmbed(username, details)
+
+                    if quote := details.get("quote"):
+                        embeds.extend(
+                            Bluebird.BuildEmbed(username, quote, isQuote=True)
+                        )
+
+                    Bluebird.Notify(embeds)
 
             self.state[username] = latest["timestamp"]
 
@@ -168,11 +175,14 @@ class Bluebird:
             logger.debug(f"https://x.com/{username}/status/{latest["postId"]}")
             logger.debug(f"[@{username}] {self.state}")
 
-    def NotifyPost(username: str, post: dict) -> None:
-        """Send a Discord Embed object for the specified X post."""
-
-        if not (webhook := environ.get("DISCORD_WEBHOOK_URL")):
-            return
+    def BuildEmbed(
+        username: str,
+        post: dict,
+        isReply: bool = False,
+        isQuote: bool = False,
+        isRepost: bool = False,
+    ) -> list[DiscordEmbed]:
+        """Build a Discord embed object for the provided X post."""
 
         embeds: list[DiscordEmbed] = []
 
@@ -183,13 +193,21 @@ class Bluebird:
             f"https://x.com/{post["author"]["screen_name"]}/status/{post["id"]}"
         )
 
+        if (isReply) or (post["replying_to"]):
+            primary.set_title("Reply on X")
+        elif isQuote:
+            primary.set_title("Quote on X")
+        elif (isRepost) or (post["text"] and post["text"].startswith("RT @")):
+            primary.set_title("Repost on X")
+        else:
+            primary.set_title("Post on X")
+
         primary.set_color("1D9BF0")
         primary.set_author(
             f"{post["author"]["name"]} (@{post["author"]["screen_name"]})",
             url=f"https://x.com/{post["author"]["screen_name"]}",
             icon_url=post["author"]["avatar_url"],
         )
-        primary.set_title("Post on X")
         primary.set_url(postUrl)
         primary.set_footer(post["source"], icon_url="https://i.imgur.com/hZbC8my.png")
         primary.set_timestamp(post["created_timestamp"])
@@ -239,6 +257,14 @@ class Bluebird:
 
         embeds.append(primary)
         embeds.extend(extras)
+
+        return embeds
+
+    def Notify(embeds: list[DiscordEmbed]) -> None:
+        """Send a Discord Embed object for the specified X post."""
+
+        if not (webhook := environ.get("DISCORD_WEBHOOK_URL")):
+            return
 
         DiscordWebhook(url=webhook, embeds=embeds, rate_limit_retry=True).execute()
 
