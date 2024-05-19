@@ -12,7 +12,7 @@ from loguru import logger
 class X:
     """Interact and engage with the X API."""
 
-    def GetUserID(username: str) -> int:
+    def GetUserID(username: str) -> int | None:
         """Fetch an X user by their username and return their unique identifier."""
 
         userId: int | None = None
@@ -43,13 +43,13 @@ class X:
     ) -> list[dict[str, int | str]]:
         """Fetch an array of the latest posts from the specified X username."""
 
-        userId: int = X.GetUserID(username)
+        posts: list[dict[str, int | str]] = []
+
+        userId: int | None = X.GetUserID(username)
+        entries: list[dict] = []
 
         if not userId:
-            return
-
-        entries: list[dict] = []
-        posts: list[dict[str, int]] = []
+            return posts
 
         endpoint: str = "https://twitter.com/i/api/graphql/-gxtzCQbBPmOwxnY-SbiHQ/UserTweetsAndReplies"
         variables: dict[str, str | int | bool | None] = {
