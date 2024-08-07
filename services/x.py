@@ -216,7 +216,7 @@ class X:
                     }
                 )
             except Exception as e:
-                logger.opt(exception=e).warning(f"[@{username}] Failed to parse post")
+                logger.opt(exception=e).debug(f"[@{username}] Failed to parse post")
 
         # Sort the array from oldest to newest.
         posts = sorted(posts, key=itemgetter("timestamp"))
