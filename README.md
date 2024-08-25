@@ -1,6 +1,6 @@
 # Bluebird
 
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/EthanC/Bluebird/ci.yml?branch=main) ![Docker Pulls](https://img.shields.io/docker/pulls/ethanchrisp/bluebird?label=Docker%20Pulls) ![Docker Image Size (tag)](https://img.shields.io/docker/image-size/ethanchrisp/bluebird/latest?label=Docker%20Image%20Size)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/EthanC/Bluebird/ci.yaml?branch=main) ![Docker Pulls](https://img.shields.io/docker/pulls/ethanchrisp/bluebird?label=Docker%20Pulls) ![Docker Image Size (tag)](https://img.shields.io/docker/image-size/ethanchrisp/bluebird/latest?label=Docker%20Image%20Size)
 
 Bluebird monitors users on X and reports new posts via Discord.
 
