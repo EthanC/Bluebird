@@ -31,7 +31,7 @@ An X account is required. It is recommended to use a throwaway account due to us
 
 ### Docker (Recommended)
 
-Modify the following `docker-compose.yml` example file, then run `docker compose up`.
+Modify the following `compose.yaml` example file, then run `docker compose up`.
 
 ```yml
 services:
