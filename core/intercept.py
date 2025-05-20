@@ -12,8 +12,8 @@ class Intercept(Handler):
     def emit(self: Self, record: LogRecord):
         """Log emitter."""
 
-        level: str = record.levelno
-        frame: FrameType = logging.currentframe()
+        level: int | str = record.levelno
+        frame: FrameType | None = logging.currentframe()
         depth: int = 2
 
         try:
@@ -21,8 +21,9 @@ class Intercept(Handler):
         except Exception as e:
             logger.opt(exception=e).trace("Failed to determine logger intercept level")
 
-        while frame.f_code.co_filename == logging.__file__:
+        while (frame) and (frame.f_code.co_filename == logging.__file__):
             frame = frame.f_back
+
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(

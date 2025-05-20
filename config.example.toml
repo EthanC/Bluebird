@@ -1,0 +1,11 @@
+[instances]
+
+[[instances.x]]
+usernames = ["RockstarGames"]
+discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX"
+require_media = true
+
+[[instances.x]]
+usernames = ["CallofDuty"]
+discord_webhook_url = "https://discord.com/api/webhooks/ZZZZZZZZ/ZZZZZZZZ"
+exclude_keywords = ["warzone", "bundle"]

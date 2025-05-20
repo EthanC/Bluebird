@@ -1,63 +1,79 @@
 # Bluebird
 
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/EthanC/Bluebird/ci.yaml?branch=main) ![Docker Pulls](https://img.shields.io/docker/pulls/ethanchrisp/bluebird?label=Docker%20Pulls) ![Docker Image Size (tag)](https://img.shields.io/docker/image-size/ethanchrisp/bluebird/latest?label=Docker%20Image%20Size)
+![Python](https://img.shields.io/badge/Python-3-blue?logo=python&logoColor=white)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/ethanc/bluebird/workflow.yaml)
+![Docker Pulls](https://img.shields.io/docker/pulls/ethanchrisp/bluebird)
+![Docker Image Size (tag)](https://img.shields.io/docker/image-size/ethanchrisp/bluebird)
 
-Bluebird monitors users on X and reports new posts via Discord.
+Bluebird tracks users on X (formerly Twitter) and sends post notifications to Discord.
 
-<p align="center">
-    <img src="https://i.imgur.com/7r4eMLt.png" draggable="false">
-</p>
+![Example](/.github/images/readme_example.png)
 
-## Setup
+## Features
 
-Although not required, a [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) is recommended for notifications.
+-   Monitor any public user on X — no login required.
+-   Get structured alerts with rich Discord Components.
+-   Fine-tune alerts using filters like keywords or media-only.
+-   Deploy effortlessly with Docker or run locally with Python.
 
-An X account is required. It is recommended to use a throwaway account due to use of the internal API.
+## Getting Started
 
-**Environment Variables:**
+### Quick Start: Docker Compose
 
--   `LOG_LEVEL`: [Loguru](https://loguru.readthedocs.io/en/stable/api/logger.html) severity level to write to the console.
--   `LOG_DISCORD_WEBHOOK_URL`: [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) URL to receive log events.
--   `LOG_DISCORD_WEBHOOK_LEVEL`: Minimum [Loguru](https://loguru.readthedocs.io/en/stable/api/logger.html) severity level to forward to Discord.
--   `USERS_ALL`: Comma-separated list of [X](https://x.com/) usernames to monitor for all posts.
--   `USERS_TOP`: Comma-separated list of [X](https://x.com/) usernames to monitor for top-level posts only.
--   `USERS_MEDIA`: Comma-separated list of [X](https://x.com/) usernames to monitor for media posts only.
--   `COOLDOWN_MIN_TIME`: Minimum randomized cooldown time between checking for new posts (default is 60).
--   `COOLDOWN_MAX_TIME`: Maximum randomized cooldown time between checking for new posts (default is 300).
--   `X_CSRF_TOKEN`: CSRF Token obtained via request inspection on [X](https://x.com/).
--   `X_AUTH_TOKEN`: Cookie Auth Token obtained via request inspection on [X](https://x.com/).
--   `X_BEARER_TOKEN`: Authentication Bearer Token obtained via request inspection on [X](https://x.com/).
--   `DISCORD_WEBHOOK_URL`: [Discord Webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) URL to receive new post notifications.
+Rename `config.example.toml` to `config.toml` and set your instance configuration(s).
 
-### Docker (Recommended)
+Optional configuration settings:
 
-Modify the following `compose.yaml` example file, then run `docker compose up`.
+-   `require_media` (boolean)
+-   `require_keyword` (array of strings)
+-   `exclude_reply` (boolean)
+-   `exclude_repost` (boolean)
+-   `exclude_keyword` (array of strings)
 
-```yml
+Next, edit and run this example `compose.yaml` with `docker compose up`.
+
+```yaml
 services:
-  bluebird:
-    container_name: bluebird
-    image: ethanchrisp/bluebird:latest
-    environment:
-      LOG_LEVEL: INFO
-      LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
-      LOG_DISCORD_WEBHOOK_LEVEL: WARNING
-      USERS_ALL: Mxtive,spectatorindex,Breaking911
-      USERS_TOP: X,XData
-      USERS_MEDIA: archillect
-      COOLDOWN_MIN_TIME: 60
-      COOLDOWN_MAX_TIME: 300
-      X_CSRF_TOKEN: XXXXXXXX
-      X_AUTH_TOKEN: XXXXXXXX
-      X_BEARER_TOKEN: XXXXXXXX
-      DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX
-    restart: unless-stopped
+    bluebird:
+        container_name: bluebird
+        image: ethanchrisp/bluebird:latest
+        environment:
+            LOG_LEVEL: INFO
+            LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
+            LOG_DISCORD_WEBHOOK_LEVEL: WARNING
 ```
 
-### Standalone
+### Standalone: Python
 
-Bluebird is built for [Python 3.12](https://www.python.org/) or greater.
+> [!NOTE]
+> Python 3.13 or later required.
 
-1. Install required dependencies using [uv](https://github.com/astral-sh/uv): `uv sync`
-2. Rename `.env.example` to `.env`, then provide the environment variables.
-3. Start Bluebird: `python bluebird.py`
+1. Install dependencies.
+
+    ```bash
+    uv sync
+    ```
+
+2. Rename `.env.example` to `.env` and configure your environment.
+
+3. Rename `config.example.toml` to `config.toml` and set your instance configuration(s).
+
+4. Run Bluebird
+
+    ```bash
+    uv run bluebird.py
+    ```
+
+### Configuration
+
+Each instance within `config.toml` can be configured to filter posts from sending notifications.
+
+| **Key**               | **Description**                                          | **Type**         | **Required** | **Example**                                         |
+| --------------------- | -------------------------------------------------------- | ---------------- | ------------ | --------------------------------------------------- |
+| `usernames`           | X usernames to track.                                    | Array of Strings | Yes          | `["RockstarGames", "CallofDuty", "Mxtive"]`         |
+| `discord_webhook_url` | Discord Webhook URL to send post notifications to.       | String           | Yes          | `https://discord.com/api/webhook/XXXXXXXX/XXXXXXXX` |
+| `require_media`       | Set to `true` to only notify of posts with media.        | Boolean          | No           | `true`                                              |
+| `require_keyword`     | Only notify of the post if one of these words are found. | Array of Strings | No           | `["trailer", "new", "announcement", "delay"]`       |
+| `exclude_reply`       | Set to `true` to skip posts that are replies.            | Boolean          | No           | `true`                                              |
+| `exclude_repost`      | Set to `true` to skip posts that are reposts.            | Boolean          | No           | `true`                                              |
+| `exclude_keyword`     | Skip the post if at least one of these words are found.  | Array of Strings | No           | `["store", "price", "shop", "bundle"]`              |
