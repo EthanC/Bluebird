@@ -11,7 +11,7 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 ## Features
 
--   Monitor any public user on X — no login required.
+-   Monitor any public user on X — no login required (thanks to [dylanpdx/BetterTwitFix](https://github.com/dylanpdx/BetterTwitFix)).
 -   Get structured alerts with rich Discord Components.
 -   Fine-tune alerts using filters like keywords or media-only.
 -   Deploy effortlessly with Docker or run locally with Python.
