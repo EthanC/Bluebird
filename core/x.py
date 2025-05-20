@@ -1,3 +1,4 @@
+import random
 import re
 from datetime import datetime
 from operator import itemgetter
@@ -79,6 +80,8 @@ class XInstance:
                 self.state[username] = env.int("DEBUG_STATE")
 
             Thread(target=self.watch_user, args=[username], daemon=True).start()
+
+            sleep(random.uniform(1.0, 3.0))
 
     def watch_user(self: Self, username: str) -> None:
         """
