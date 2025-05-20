@@ -41,6 +41,7 @@ services:
             LOG_LEVEL: INFO
             LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
             LOG_DISCORD_WEBHOOK_LEVEL: WARNING
+        restart: unless-stopped
 ```
 
 ### Standalone: Python
