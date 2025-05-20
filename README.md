@@ -22,14 +22,6 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 Rename `config.example.toml` to `config.toml` and set your instance configuration(s).
 
-Optional configuration settings:
-
--   `require_media` (boolean)
--   `require_keyword` (array of strings)
--   `exclude_reply` (boolean)
--   `exclude_repost` (boolean)
--   `exclude_keyword` (array of strings)
-
 Next, edit and run this example `compose.yaml` with `docker compose up`.
 
 ```yaml
@@ -41,6 +33,8 @@ services:
             LOG_LEVEL: INFO
             LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
             LOG_DISCORD_WEBHOOK_LEVEL: WARNING
+        volumes:
+            - /local/path/to/config.toml:/bluebird/config.toml:ro
         restart: unless-stopped
 ```
 
