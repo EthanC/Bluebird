@@ -96,12 +96,12 @@ class XInstance:
 
             if not self.state.get(username):
                 if len(posts) > 0:
-                    self.state[username] = int(posts[0]["tweetID"])
+                    self.state[username] = int(posts[-1]["tweetID"])
 
                     logger.info(
                         f"{self.log(username)} Set state to {self.state[username]}, sleeping for {data['max_age']:,}s..."
                     )
-                    logger.trace(f"{self.log(username)} {self.state=} {posts[0]=}")
+                    logger.trace(f"{self.log(username)} {self.state=} {posts[-1]=}")
 
                 sleep(data["max_age"])
 
@@ -204,6 +204,12 @@ class XInstance:
                     continue
 
                 self.notify(username, post)
+
+            if len(posts) > 0:
+                self.state[username] = int(posts[-1]["tweetID"])
+
+                logger.info(f"{self.log(username)} Set state to {self.state[username]}")
+                logger.trace(f"{self.log(username)} {self.state=} {posts[-1]=}")
 
             logger.info(
                 f"{self.log(username)} Processed {len(posts):,} posts, sleeping for {data['max_age']:,}s..."
