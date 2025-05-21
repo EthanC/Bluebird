@@ -241,12 +241,13 @@ class XInstance:
 
                 self.notify(username, post_id, post)
 
-            self.state[username] = posts[-1]["date_epoch"]
+            if self.state[username] != posts[-1]["date_epoch"]:
+                self.state[username] = posts[-1]["date_epoch"]
 
-            logger.info(
-                f"{self.log(username)} Set latest state ({self.state[username]})"
-            )
-            logger.trace(f"{self.log(username)} {self.state=}")
+                logger.info(
+                    f"{self.log(username)} Set latest state ({self.state[username]})"
+                )
+                logger.trace(f"{self.log(username)} {self.state=}")
 
             logger.info(
                 f"{self.log(username)} {len(posts):,} posts processed, sleeping for {max_age:,}s..."
@@ -257,9 +258,10 @@ class XInstance:
     def fetch_user(self: Self, username: str) -> dict[str, Any] | None:
         """Fetch the latest available data for the provided X username."""
         data: dict[str, Any] | None = None
+        res: None | Response = None
 
         try:
-            res: Response = httpx.get(
+            res = httpx.get(
                 f"https://api.vxtwitter.com/{username}",
                 params={"with_tweets": True},
                 headers={"User-Agent": "https://github.com/EthanC/Bluebird"},
@@ -291,6 +293,14 @@ class XInstance:
             if cache_control := res.headers.get("cache-control"):
                 data["max_age"] = float(cache_control.split("max-age=")[1])
         except Exception as e:
+            # HTTP 500 happens often, don't log as error
+            if res and res.status_code == 500:
+                logger.opt(exception=e).debug(
+                    f"{self.log(username)} Failed to fetch data for user"
+                )
+
+                return data
+
             logger.opt(exception=e).error(
                 f"{self.log(username)} Failed to fetch data for user"
             )
