@@ -50,7 +50,7 @@ class XInstance:
     exclude_repost: bool | None
     exclude_keyword: list[str] | None
 
-    def log(self: Self, username: str | None = None) -> str:
+    def log(self: Self, username: str | None = None, post_id: str | None = None) -> str:
         """Craft the head of a log message given an instance and username."""
         head: str = "X"
 
@@ -58,6 +58,9 @@ class XInstance:
 
         if username:
             head += f"[@{username}]"
+
+        if post_id:
+            head += f"[{post_id}]"
 
         return head
 
@@ -88,31 +91,62 @@ class XInstance:
         Run a continuous loop that processes user data and triggers notifications upon
         the discovery of new posts for the provided X username.
         """
-        logger.info(f"{self.log(username)} Watching for new posts")
+        logger.info(f"{self.log(username)} Started watching for new posts")
+
+        max_age: float = 60.0
 
         while True:
-            data: dict[str, Any] = self.fetch_user(username)
-            posts: list[dict[str, Any]] = data.get("latest_tweets", [])
+            logger.debug(f"{self.log(username)} Checking for new posts...")
+
+            data: dict[str, Any] | None = self.fetch_user(username)
+
+            if not data or not data.get("latest_tweets"):
+                logger.debug(
+                    f"{self.log(username)} Invalid data, retry in {max_age:,}s..."
+                )
+                logger.trace(f"{self.log(username)} {data=}")
+
+                sleep(max_age)
+
+                continue
+
+            # Use proper username if available
+            username = data.get("screen_name", username)
+
+            if data.get("max_age"):
+                max_age = data["max_age"]
+
+            posts: list[dict[str, Any]] = data["latest_tweets"]
 
             if not self.state.get(username):
-                if len(posts) > 0:
-                    self.state[username] = int(posts[-1]["tweetID"])
+                self.state[username] = posts[-1]["date_epoch"]
 
-                    logger.info(
-                        f"{self.log(username)} Set state to {self.state[username]}, sleeping for {data['max_age']:,}s..."
-                    )
-                    logger.trace(f"{self.log(username)} {self.state=} {posts[-1]=}")
+                logger.info(
+                    f"{self.log(username)} Set initial state ({self.state[username]}), sleeping for {max_age:,}s..."
+                )
+                logger.trace(f"{self.log(username)} {self.state=}")
 
-                sleep(data["max_age"])
+                sleep(max_age)
 
                 continue
 
             for post in posts:
-                if int(post["tweetID"]) <= self.state[username]:
+                post_id: str | None = post.get("tweetID")
+                post_epoch: int | None = post.get("date_epoch")
+
+                if not post_epoch:
                     logger.debug(
-                        f"{self.log(username)} Skipped post {post['tweetID']}, older than desired"
+                        f"{self.log(username, post_id)} Skipped post, invalid data"
                     )
-                    logger.trace(f"{self.log(username)} {post=}")
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+                if post_epoch <= self.state[username]:
+                    logger.debug(
+                        f"{self.log(username, post_id)} Skipped post, older than desired"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
 
                     continue
 
@@ -122,9 +156,9 @@ class XInstance:
 
                     if not post_text:
                         logger.debug(
-                            f"{self.log(username)} Skipped post due to keyword requirement"
+                            f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
                         )
-                        logger.trace(f"{self.log(username)} {post=}")
+                        logger.trace(f"{self.log(username, post_id)} {post=}")
 
                         continue
 
@@ -136,36 +170,36 @@ class XInstance:
 
                     if not keyword_found:
                         logger.debug(
-                            f"{self.log(username)} Skipped post due to keyword {keyword_found} requirement"
+                            f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
                         )
-                        logger.trace(f"{self.log(username)} {post=}")
+                        logger.trace(f"{self.log(username, post_id)} {post=}")
 
                         continue
 
                 if self.require_media:
                     if len(post.get("media_extended", [])) == 0:
                         logger.debug(
-                            f"{self.log(username)} Skipped post due to media requirement"
+                            f"{self.log(username, post_id)} Skipped post, media requirement not met"
                         )
-                        logger.trace(f"{self.log(username)} {post=}")
+                        logger.trace(f"{self.log(username, post_id)} {post=}")
 
                         continue
 
                 if self.exclude_reply:
                     if post.get("is_reply"):
                         logger.debug(
-                            f"{self.log(username)} Skipped post due to reply exclusion"
+                            f"{self.log(username), post_id} Skipped post, replies excluded"
                         )
-                        logger.trace(f"{self.log(username)} {post=}")
+                        logger.trace(f"{self.log(username, post_id)} {post=}")
 
                         continue
 
                 if self.exclude_repost:
                     if post.get("is_repost"):
                         logger.debug(
-                            f"{self.log(username)} Skipped post due to repost exclusion"
+                            f"{self.log(username, post_id)} Skipped post, reposts excluded"
                         )
-                        logger.trace(f"{self.log(username)} {post=}")
+                        logger.trace(f"{self.log(username, post_id)} {post=}")
 
                         continue
 
@@ -182,49 +216,53 @@ class XInstance:
 
                     if keyword_found:
                         logger.debug(
-                            f"{self.log(username)} Skipped post due to keyword {keyword_found} exclusion"
+                            f"{self.log(username, post_id)} Skipped post, keyword {keyword_found} excluded"
                         )
-                        logger.trace(f"{self.log(username)} {post=}")
+                        logger.trace(f"{self.log(username, post_id)} {post=}")
 
                         continue
 
                 # Avoid unnecessary redirects
                 if post_url := post.get("tweetURL"):
-                    post["tweetURL"] = post_url.replace("twitter.com", "x.com")
+                    post_url = post_url.replace("twitter.com", "x.com")
+                    post["tweetURL"] = post_url
 
                 logger.success(
-                    f"{self.log(username)} Discovered a new post on X: {post['tweetURL']}"
+                    f"{self.log(username, post_id)} Discovered new post {post_url}"
                 )
 
                 if not self.webhook_url:
                     logger.debug(
-                        f"{self.log(username)} Webhook URL is not set, skipped build steps"
+                        f"{self.log(username, post_id)} Skipped notification, Webhook not configured"
                     )
+                    logger.trace(f"{self.log(username, post_id)} {self=}")
 
                     continue
 
-                self.notify(username, post)
+                self.notify(username, post_id, post)
 
-            if len(posts) > 0:
-                self.state[username] = int(posts[-1]["tweetID"])
-
-                logger.info(f"{self.log(username)} Set state to {self.state[username]}")
-                logger.trace(f"{self.log(username)} {self.state=} {posts[-1]=}")
+            self.state[username] = posts[-1]["date_epoch"]
 
             logger.info(
-                f"{self.log(username)} Processed {len(posts):,} posts, sleeping for {data['max_age']:,}s..."
+                f"{self.log(username)} Set latest state ({self.state[username]})"
+            )
+            logger.trace(f"{self.log(username)} {self.state=}")
+
+            logger.info(
+                f"{self.log(username)} {len(posts):,} posts processed, sleeping for {max_age:,}s..."
             )
 
-            sleep(data["max_age"])
+            sleep(max_age)
 
-    def fetch_user(self: Self, username: str) -> dict[str, Any]:
+    def fetch_user(self: Self, username: str) -> dict[str, Any] | None:
         """Fetch the latest available data for the provided X username."""
-        data: dict[str, Any] = {}
-        data["max_age"] = 60.0
+        data: dict[str, Any] | None = None
 
         try:
             res: Response = httpx.get(
-                f"https://api.vxtwitter.com/{username}", params={"with_tweets": True}
+                f"https://api.vxtwitter.com/{username}",
+                params={"with_tweets": True},
+                headers={"User-Agent": "https://github.com/EthanC/Bluebird"},
             ).raise_for_status()
 
             logger.debug(f"{self.log(username)} Requested data for user")
@@ -232,25 +270,27 @@ class XInstance:
 
             data = res.json()
 
-            # Sort posts chronologically
-            if posts := data.get("latest_tweets"):
-                data["latest_tweets"] = sorted(posts, key=itemgetter("tweetID"))
+            if not data or not data.get("latest_tweets"):
+                raise ValueError("Invalid data received")
 
-            for post in data.get("latest_tweets", []):
+            # Sort posts chronologically
+            data["latest_tweets"] = sorted(
+                data["latest_tweets"], key=itemgetter("date_epoch")
+            )
+
+            # Add miscellaneous data to each post object
+            for post in data["latest_tweets"]:
                 post["user_bio"] = data.get("description")
+                post["is_repost"] = bool(post.get("retweetURL") or post.get("retweet"))
+                post["is_quote"] = bool(post.get("qrtURL"))
                 post["is_reply"] = bool(
                     post.get("replyingToID") or data.get("replyingTo")
                 )
-                post["is_repost"] = bool(post.get("retweetURL") or post.get("retweet"))
-                post["is_quote"] = bool(post.get("qrtURL"))
 
             # Set max_age based on response headers
             if cache_control := res.headers.get("cache-control"):
                 data["max_age"] = float(cache_control.split("max-age=")[1])
         except Exception as e:
-            if "" in str(e):
-                return data
-
             logger.opt(exception=e).error(
                 f"{self.log(username)} Failed to fetch data for user"
             )
@@ -262,17 +302,18 @@ class XInstance:
 
         return data
 
-    def fetch_post(self: Self, username: str, post_id: str | int) -> dict[str, Any]:
+    def fetch_post(self: Self, username: str, post_id: str) -> dict[str, Any]:
         """Fetch the post data for the provided username and post ID combination."""
         data: dict[str, Any] = {}
 
         try:
             res: Response = httpx.get(
-                f"https://api.vxtwitter.com/{username}/status/{post_id}"
+                f"https://api.vxtwitter.com/{username}/status/{post_id}",
+                headers={"User-Agent": "https://github.com/EthanC/Bluebird"},
             ).raise_for_status()
 
-            logger.debug(f"{self.log(username)} Requested data for post {post_id}")
-            logger.trace(f"{self.log(username)} {res=}")
+            logger.debug(f"{self.log(username, post_id)} Requested post data")
+            logger.trace(f"{self.log(username, post_id)} {res=}")
 
             data = res.json()
 
@@ -280,24 +321,20 @@ class XInstance:
             data["is_repost"] = bool(data.get("retweetURL") or data.get("retweet"))
             data["is_quote"] = bool(data.get("qrtURL"))
         except Exception as e:
-            if username == "i":
-                # We don't care too much about failed reply/quote parents
-                logger.opt(exception=e).debug(
-                    f"{self.log(username)} Failed to fetch post {post_id}"
-                )
-            else:
-                logger.opt(exception=e).error(
-                    f"{self.log(username)} Failed to fetch post {post_id}"
-                )
+            logger.opt(exception=e).error(
+                f"{self.log(username, post_id)} Failed to fetch post data"
+            )
 
             return data
 
-        logger.debug(f"{self.log(username)} Fetched data for post {post_id}")
-        logger.trace(f"{self.log(username)} {data=}")
+        logger.debug(f"{self.log(username, post_id)} Fetched post data")
+        logger.trace(f"{self.log(username, post_id)} {data=}")
 
         return data
 
-    def notify(self: Self, username: str, post: dict[str, Any]) -> None:
+    def notify(
+        self: Self, username: str, post_id: str | None, post: dict[str, Any]
+    ) -> None:
         """Send a Discord Webhook notification for the provided X post."""
         webhook: Webhook = Webhook(url=self.webhook_url)
 
@@ -306,9 +343,11 @@ class XInstance:
                 post["replyingTo"], post["replyingToID"]
             )
 
-            webhook.add_component(self.build_post(username, reply_parent, True))
+            webhook.add_component(
+                self.build_post(username, post_id, reply_parent, True)
+            )
 
-        webhook.add_component(self.build_post(username, post))
+        webhook.add_component(self.build_post(username, post_id, post))
 
         if post.get("is_quote") and post.get("qrtURL"):
             if re_match := re.match(pattern_post_url, post["qrtURL"]):
@@ -317,10 +356,12 @@ class XInstance:
                     quote_username, re_match.group(2)
                 )
 
-                webhook.add_component(self.build_post(quote_username, quote_post, True))
+                webhook.add_component(
+                    self.build_post(quote_username, post_id, quote_post, True)
+                )
             else:
                 logger.warning(
-                    f"{self.log(username)} Failed to determine attributes for Quote Post {post['qrtURL']}"
+                    f"{self.log(username, post_id)} Failed to process Quote Post {post['qrtURL']}"
                 )
 
         if post.get("is_repost") and post.get("retweetURL"):
@@ -330,32 +371,39 @@ class XInstance:
                     repost_username, re_match.group(2)
                 )
 
-                webhook.add_component(self.build_post(repost_username, repost, True))
+                webhook.add_component(
+                    self.build_post(repost_username, post_id, repost, True)
+                )
             else:
                 logger.warning(
-                    f"{self.log(username)} Failed to determine attributes for Quote Post {post['retweetURL']}"
+                    f"{self.log(username, post_id)} Failed to process Repost {post['retweetURL']}"
                 )
 
-        webhook.add_component(self.build_post_outbound(username, post["tweetURL"]))
+        webhook.add_component(
+            self.build_post_outbound(username, post_id, post["tweetURL"])
+        )
 
-        logger.debug(f"{self.log(username)} Built Webhook for post {post['tweetID']}")
-        logger.trace(f"{self.log(username)} {webhook=}")
+        logger.debug(f"{self.log(username, post_id)} Built Webhook for post")
+        logger.trace(f"{self.log(username, post_id)} {webhook=}")
 
         webhook.execute()
 
     def build_post(
-        self: Self, username: str, post: dict[str, Any], mini: bool = False
+        self: Self,
+        username: str,
+        post_id: str | None,
+        post: dict[str, Any],
+        mini: bool = False,
     ) -> Container:
         """Build a Discord Container Component for the provided X post."""
-        # Use proper username if available
-        username = post.get("user_screen_name", username)
-
         container: Container = Container(accent_color="#000000")
 
-        head: TextDisplay | Section = self.build_post_head(username, post, mini)
-        body: TextDisplay | None = self.build_post_body(username, post)
-        media: MediaGallery | None = self.build_post_media(username, post)
-        footer: TextDisplay = self.build_post_footer(username, post)
+        head: TextDisplay | Section = self.build_post_head(
+            username, post_id, post, mini
+        )
+        body: TextDisplay | None = self.build_post_body(username, post_id, post)
+        media: MediaGallery | None = self.build_post_media(username, post_id, post)
+        footer: TextDisplay = self.build_post_footer(username, post_id, post)
 
         container.add_component(head)
 
@@ -368,15 +416,17 @@ class XInstance:
         container.add_component(Seperator(divider=True, spacing=SeperatorSpacing.SMALL))
         container.add_component(footer)
 
-        logger.debug(
-            f"{self.log(username)} Built Container for post: {post.get('tweetURL')}"
-        )
-        logger.trace(f"{self.log(username)} {container=}")
+        logger.debug(f"{self.log(username, post_id)} Built Container for post")
+        logger.trace(f"{self.log(username, post_id)} {container=}")
 
         return container
 
     def build_post_head(
-        self: Self, username: str, post: dict[str, Any], mini: bool = False
+        self: Self,
+        username: str,
+        post_id: str | None,
+        post: dict[str, Any],
+        mini: bool = False,
     ) -> TextDisplay | Section:
         """Build a Discord Text Display or Section Component for the provided X post."""
         name_username: str = Markdown.masked_link(
@@ -414,15 +464,13 @@ class XInstance:
             avatar = avatar.replace("_normal", "")
             head.set_accessory(accessory=Thumbnail(media=UnfurledMediaItem(url=avatar)))
 
-        logger.debug(
-            f"{self.log(username)} Built head for post: {post.get('tweetURL')}"
-        )
-        logger.trace(f"{self.log(username)} {head=}")
+        logger.debug(f"{self.log(username, post_id)} Built head for post")
+        logger.trace(f"{self.log(username, post_id)} {head=}")
 
         return head
 
     def build_post_body(
-        self: Self, username: str, post: dict[str, Any]
+        self: Self, username: str, post_id: str | None, post: dict[str, Any]
     ) -> TextDisplay | None:
         """Build a Discord Text Display Component for the provided X post."""
         text: str | None = post.get("text")
@@ -440,15 +488,13 @@ class XInstance:
 
         body: TextDisplay = TextDisplay(content=Markdown.block_quote(text))
 
-        logger.debug(
-            f"{self.log(username)} Built body for post: {post.get('tweetURL')}"
-        )
-        logger.trace(f"{self.log(username)} {body=}")
+        logger.debug(f"{self.log(username, post_id)} Built body for post")
+        logger.trace(f"{self.log(username, post_id)} {body=}")
 
         return body
 
     def build_post_media(
-        self: Self, username: str, post: dict[str, Any]
+        self: Self, username: str, post_id: str | None, post: dict[str, Any]
     ) -> MediaGallery | None:
         """Build a Discord Media Gallery Component for the provided X post."""
         media_raw: list[dict[str, Any]] | None = post.get("media_extended")
@@ -471,15 +517,13 @@ class XInstance:
 
             media.add_item(item)
 
-        logger.debug(
-            f"{self.log(username)} Built media for post: {post.get('tweetURL')}"
-        )
-        logger.trace(f"{self.log(username)} {media=}")
+        logger.debug(f"{self.log(username, post_id)} Built media for post")
+        logger.trace(f"{self.log(username, post_id)} {media=}")
 
         return media
 
     def build_post_footer(
-        self: Self, username: str, post: dict[str, Any]
+        self: Self, username: str, post_id: str | None, post: dict[str, Any]
     ) -> TextDisplay:
         """Build a Discord Seperator and Text Display Component for the provided X post."""
 
@@ -500,14 +544,14 @@ class XInstance:
             content=Markdown.subtext(f"{action} {ts_long} ({ts_relative})")
         )
 
-        logger.debug(
-            f"{self.log(username)} Built footer for post: {post.get('tweetURL')}"
-        )
-        logger.trace(f"{self.log(username)} {footer=}")
+        logger.debug(f"{self.log(username, post_id)} Built footer for post")
+        logger.trace(f"{self.log(username, post_id)} {footer=}")
 
         return footer
 
-    def build_post_outbound(self: Self, username: str, post_url: str) -> ActionRow:
+    def build_post_outbound(
+        self: Self, username: str, post_id: str | None, post_url: str
+    ) -> ActionRow:
         """Build a Discord Action Row Component for the provided X post."""
 
         outbound: ActionRow = ActionRow()
@@ -519,7 +563,7 @@ class XInstance:
             )
         )
 
-        logger.debug(f"{self.log(username)} Built outbound links for post: {post_url}")
-        logger.trace(f"{self.log(username)} {outbound=}")
+        logger.debug(f"{self.log(username, post_id)} Built outbound links for post")
+        logger.trace(f"{self.log(username, post_id)} {outbound=}")
 
         return outbound
