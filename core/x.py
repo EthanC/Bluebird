@@ -294,7 +294,7 @@ class XInstance:
                 data["max_age"] = float(cache_control.split("max-age=")[1])
         except Exception as e:
             # HTTP 500 happens often, don't log as error
-            if res and res.status_code == 500:
+            if "500 Internal Server Error" in str(e):
                 logger.opt(exception=e).debug(
                     f"{self.log(username)} Failed to fetch data for user"
                 )
