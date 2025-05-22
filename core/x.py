@@ -144,11 +144,12 @@ class XInstance:
 
                 if post_epoch <= self.state[username]:
                     logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, older than desired"
+                        f"{self.log(username, post_id)} Reached last-known post"
                     )
                     logger.trace(f"{self.log(username, post_id)} {post=}")
 
-                    continue
+                    # List of posts is sorted, no need to process further
+                    break
 
                 if self.require_keyword:
                     keyword_found: str | None = None
@@ -272,8 +273,10 @@ class XInstance:
 
             data = res.json()
 
-            if not data or not data.get("latest_tweets"):
-                raise ValueError("Invalid data received")
+            if not data or len(data.get("latest_tweets", [])) == 0:
+                raise ValueError(
+                    f"Expected latest_tweets, received invalid data {data=}"
+                )
 
             # Sort posts chronologically
             data["latest_tweets"] = sorted(
