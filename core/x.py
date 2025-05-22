@@ -84,7 +84,7 @@ class XInstance:
 
             Thread(target=self.watch_user, args=[username], daemon=True).start()
 
-            sleep(random.uniform(1.0, 3.0))
+            sleep(random.uniform(3.0, 10.0))
 
     def watch_user(self: Self, username: str) -> None:
         """
