@@ -1,11 +1,11 @@
 [project]
 name = "bluebird"
-version = "2.0.0"
+version = "2.1.0"
 description = "Monitor users on X and report new posts via Discord."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "environs>=14.1.1",
+    "environs>=14.2.0",
     "loguru>=0.7.3",
     "loguru-discord>=1.4.0",
     "httpx>=0.28.1",
@@ -18,7 +18,7 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 dev-dependencies = [
-    "ruff>=0.11.10",
+    "ruff>=0.12.1",
 ]
 
 [tool.ruff]
