@@ -1,10 +1,9 @@
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from operator import itemgetter
 from os import environ
 from re import Pattern
-from threading import Thread
 from time import sleep
 from typing import Any, Self
 
@@ -65,7 +64,7 @@ class XInstance:
         return head
 
     def start(self: Self, config: dict[str, Any], index: int) -> None:
-        """Create threads for the usernames within the X instance."""
+        """Run a continuous loop for the usernames within the X instance."""
         self.index = index
         self.usernames = config.get("usernames", [])
         self.webhook_url = config.get("discord_webhook_url")
@@ -78,183 +77,179 @@ class XInstance:
         logger.info(f"{self.log()} Loaded instance configuration")
         logger.trace(f"{self.log()} {self=}")
 
-        for username in self.usernames:
-            if environ.get("DEBUG_STATE"):
-                self.state[username] = env.int("DEBUG_STATE")
-
-            Thread(target=self.watch_user, args=[username], daemon=True).start()
-
-            sleep(random.uniform(3.0, 10.0))
-
-    def watch_user(self: Self, username: str) -> None:
-        """
-        Run a continuous loop that processes user data and triggers notifications upon
-        the discovery of new posts for the provided X username.
-        """
-        logger.info(f"{self.log(username)} Started watching for new posts")
-
-        max_age: float = 60.0
+        delay: float = 60.0
 
         while True:
-            logger.debug(f"{self.log(username)} Checking for new posts...")
+            for index, username in enumerate(self.usernames):
+                if environ.get("DEBUG_STATE"):
+                    self.state[username] = env.int("DEBUG_STATE")
 
-            data: dict[str, Any] | None = self.fetch_user(username)
+                delay_candidate: float | None = self.watch_user(username)
 
-            if not data or not data.get("latest_tweets"):
+                if delay_candidate and delay_candidate > delay:
+                    delay = delay_candidate
+
+                if (index + 1) < len(self.usernames):
+                    # Wait between watching users to avoid API load
+                    sleep(random.uniform(3.0, 10.0))
+
+            logger.info(f"{self.log()} Instance is sleeping for {int(delay):,}s...")
+
+            sleep(delay)
+
+    def watch_user(self: Self, username: str) -> float | None:
+        """
+        Processes user data and trigger notifications upon the discovery
+        of new posts for the provided X username.
+        """
+        logger.info(f"{self.log(username)} Checking for new posts...")
+
+        data: dict[str, Any] | None = self.fetch_user(username)
+
+        if not data or not data.get("latest_tweets"):
+            logger.debug(f"{self.log(username)} Received invalid data")
+            logger.trace(f"{self.log(username)} {data=}")
+
+            return
+
+        # Use proper username if available
+        username = data.get("screen_name", username)
+
+        posts: list[dict[str, Any]] = data["latest_tweets"]
+
+        if not self.state.get(username):
+            for post in reversed(posts):
+                if post_epoch := post.get("date_epoch"):
+                    self.state[username] = post_epoch
+
+                    logger.info(
+                        f"{self.log(username)} Set initial state ({self.state[username]})"
+                    )
+
+                    return
+
+        for post in posts:
+            post_id: str | None = post.get("tweetID")
+            post_epoch: int | None = post.get("date_epoch")
+
+            if not post_epoch:
+                logger.error(
+                    f"{self.log(username, post_id)} Skipped post, invalid data {post=}"
+                )
+                logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                continue
+
+            if post_epoch <= self.state[username]:
                 logger.debug(
-                    f"{self.log(username)} Invalid data, retry in {max_age:,}s..."
+                    f"{self.log(username, post_id)} Skipped post, not new ({post_epoch} <= {self.state[username]})"
                 )
-                logger.trace(f"{self.log(username)} {data=}")
-
-                sleep(max_age)
+                logger.trace(f"{self.log(username, post_id)} {post=}")
 
                 continue
 
-            # Use proper username if available
-            username = data.get("screen_name", username)
-
-            if data.get("max_age"):
-                max_age = data["max_age"]
-
-            posts: list[dict[str, Any]] = data["latest_tweets"]
-
-            if not self.state.get(username):
-                self.state[username] = posts[-1]["date_epoch"]
-
-                logger.info(
-                    f"{self.log(username)} Set initial state ({self.state[username]}), sleeping for {max_age:,}s..."
-                )
-                logger.trace(f"{self.log(username)} {self.state=}")
-
-                sleep(max_age)
-
-                continue
-
-            for post in posts:
-                post_id: str | None = post.get("tweetID")
-                post_epoch: int | None = post.get("date_epoch")
-
-                if not post_epoch:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, invalid data"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-                if post_epoch <= self.state[username]:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Reached last-known post"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    # List of posts is sorted, no need to process further
-                    break
-
-                if self.require_keyword:
-                    keyword_found: str | None = None
-                    post_text: str | None = post.get("text")
-
-                    if not post_text:
-                        logger.debug(
-                            f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
-                        )
-                        logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                        continue
-
-                    for keyword in self.require_keyword:
-                        if keyword.lower() in post_text.lower():
-                            keyword_found = keyword
-
-                            break
-
-                    if not keyword_found:
-                        logger.debug(
-                            f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
-                        )
-                        logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                        continue
-
-                if self.require_media:
-                    if len(post.get("media_extended", [])) == 0:
-                        logger.debug(
-                            f"{self.log(username, post_id)} Skipped post, media requirement not met"
-                        )
-                        logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                        continue
-
-                if self.exclude_reply:
-                    if post.get("is_reply"):
-                        logger.debug(
-                            f"{self.log(username), post_id} Skipped post, replies excluded"
-                        )
-                        logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                        continue
-
-                if self.exclude_repost:
-                    if post.get("is_repost"):
-                        logger.debug(
-                            f"{self.log(username, post_id)} Skipped post, reposts excluded"
-                        )
-                        logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                        continue
-
-                if self.exclude_keyword:
-                    keyword_found: str | None = None
-                    post_text: str | None = post.get("text")
-
-                    if post_text:
-                        for keyword in self.exclude_keyword:
-                            if keyword.lower() in post_text.lower():
-                                keyword_found = keyword
-
-                                break
-
-                    if keyword_found:
-                        logger.debug(
-                            f"{self.log(username, post_id)} Skipped post, keyword {keyword_found} excluded"
-                        )
-                        logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                        continue
-
-                # Avoid unnecessary redirects
-                if post_url := post.get("tweetURL"):
-                    post_url = post_url.replace("twitter.com", "x.com")
-                    post["tweetURL"] = post_url
-
-                logger.success(
-                    f"{self.log(username, post_id)} Discovered new post {post_url}"
-                )
-
-                if not self.webhook_url:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped notification, Webhook not configured"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {self=}")
-
-                    continue
-
-                self.notify(username, post_id, post)
-
-            if self.state[username] != posts[-1]["date_epoch"]:
-                self.state[username] = posts[-1]["date_epoch"]
+            if post_epoch > self.state[username]:
+                self.state[username] = post_epoch
 
                 logger.info(
                     f"{self.log(username)} Set latest state ({self.state[username]})"
                 )
                 logger.trace(f"{self.log(username)} {self.state=}")
 
-            logger.info(
-                f"{self.log(username)} {len(posts):,} posts processed, sleeping for {max_age:,}s..."
+            if self.require_keyword:
+                keyword_found: str | None = None
+                post_text: str | None = post.get("text")
+
+                if not post_text:
+                    logger.debug(
+                        f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+                for keyword in self.require_keyword:
+                    if keyword.lower() in post_text.lower():
+                        keyword_found = keyword
+
+                        break
+
+                if not keyword_found:
+                    logger.debug(
+                        f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+            if self.require_media:
+                if len(post.get("media_extended", [])) == 0:
+                    logger.debug(
+                        f"{self.log(username, post_id)} Skipped post, media requirement not met"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+            if self.exclude_reply:
+                if post.get("is_reply"):
+                    logger.debug(
+                        f"{self.log(username), post_id} Skipped post, replies excluded"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+            if self.exclude_repost:
+                if post.get("is_repost"):
+                    logger.debug(
+                        f"{self.log(username, post_id)} Skipped post, reposts excluded"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+            if self.exclude_keyword:
+                keyword_found: str | None = None
+                post_text: str | None = post.get("text")
+
+                if post_text:
+                    for keyword in self.exclude_keyword:
+                        if keyword.lower() in post_text.lower():
+                            keyword_found = keyword
+
+                            break
+
+                if keyword_found:
+                    logger.debug(
+                        f"{self.log(username, post_id)} Skipped post, keyword {keyword_found} excluded"
+                    )
+                    logger.trace(f"{self.log(username, post_id)} {post=}")
+
+                    continue
+
+            # Avoid unnecessary redirects
+            if post_url := post.get("tweetURL"):
+                post_url = post_url.replace("twitter.com", "x.com")
+                post["tweetURL"] = post_url
+
+            logger.success(
+                f"{self.log(username, post_id)} Discovered new post {post_url}"
             )
 
-            sleep(max_age)
+            if not self.webhook_url:
+                logger.debug(
+                    f"{self.log(username, post_id)} Skipped notification, Webhook not configured"
+                )
+                logger.trace(f"{self.log(username, post_id)} {self=}")
+
+                continue
+
+            self.notify(username, post_id, post)
+
+        logger.info(f"{self.log(username)} {len(posts):,} posts processed")
+
+        return data.get("max_age")
 
     def fetch_user(self: Self, username: str) -> dict[str, Any] | None:
         """Fetch the latest available data for the provided X username."""
@@ -264,7 +259,10 @@ class XInstance:
         try:
             res = httpx.get(
                 f"https://api.vxtwitter.com/{username}",
-                params={"with_tweets": True},
+                params={
+                    "with_tweets": True,
+                    "timestamp": int(datetime.now(timezone.utc).timestamp()),
+                },
                 headers={"User-Agent": "https://github.com/EthanC/Bluebird"},
             ).raise_for_status()
 
@@ -273,7 +271,7 @@ class XInstance:
 
             data = res.json()
 
-            if not data or len(data.get("latest_tweets", [])) == 0:
+            if not data or not "latest_tweets" in data:
                 raise ValueError(
                     f"Expected latest_tweets, received invalid data {data=}"
                 )

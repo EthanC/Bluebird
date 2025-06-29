@@ -2,6 +2,7 @@ import logging
 import tomllib
 from os import environ
 from sys import stdout
+from threading import Thread
 from time import sleep
 from typing import Any
 
@@ -60,8 +61,8 @@ def start() -> None:
     logger.info(f"Loaded {len(instances):,} instances from config.toml")
     logger.trace(f"{config=}")
 
-    for instance in instances.get("x", []):
-        XInstance.start(XInstance(), instance, instances["x"].index(instance))
+    for index, config in enumerate(instances.get("x", [])):
+        Thread(target=XInstance().start, args=[config, index], daemon=True).start()
 
     # Keep parent thread alive so child threads continue to run
     while True:
