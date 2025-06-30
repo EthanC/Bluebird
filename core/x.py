@@ -77,25 +77,25 @@ class XInstance:
         logger.info(f"{self.log()} Loaded instance configuration")
         logger.trace(f"{self.log()} {self=}")
 
-        delay: float = config.get("loop_delay", 60.0)
+        cooldown: float = config.get("cooldown", 60.0)
 
         while True:
             for index, username in enumerate(self.usernames):
                 if environ.get("DEBUG_STATE"):
                     self.state[username] = env.int("DEBUG_STATE")
 
-                delay_candidate: float | None = self.watch_user(username)
+                cooldown_new: float | None = self.watch_user(username)
 
-                if delay_candidate and delay_candidate > delay:
-                    delay = delay_candidate
+                if cooldown_new and cooldown_new > cooldown:
+                    cooldown = cooldown_new
 
                 if (index + 1) < len(self.usernames):
                     # Wait between watching users to avoid API load
                     sleep(random.uniform(3.0, 10.0))
 
-            logger.info(f"{self.log()} Instance is sleeping for {int(delay):,}s...")
+            logger.info(f"{self.log()} Instance is sleeping for {int(cooldown):,}s...")
 
-            sleep(delay)
+            sleep(cooldown)
 
     def watch_user(self: Self, username: str) -> float | None:
         """

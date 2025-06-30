@@ -72,4 +72,4 @@ Each instance within `config.toml` can be configured to filter posts from sendin
 | `exclude_reply`       | Set to `true` to skip posts that are replies.                       | Boolean          | No           | `true`                                              |
 | `exclude_repost`      | Set to `true` to skip posts that are reposts.                       | Boolean          | No           | `true`                                              |
 | `exclude_keyword`     | Skip the post if at least one of these words are found.             | Array of Strings | No           | `["store", "price", "shop", "bundle"]`              |
-| `loop_delay`          | Amount of time (in seconds) to wait between checking for new posts. | Integer          | No           | `900`                                               |
+| `cooldown`            | Amount of time (in seconds) to wait between checking for new posts. | Integer          | No           | `900`                                               |
