@@ -77,7 +77,7 @@ class XInstance:
         logger.info(f"{self.log()} Loaded instance configuration")
         logger.trace(f"{self.log()} {self=}")
 
-        delay: float = 60.0
+        delay: float = config.get("loop_delay", 60.0)
 
         while True:
             for index, username in enumerate(self.usernames):

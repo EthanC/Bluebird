@@ -63,12 +63,13 @@ services:
 
 Each instance within `config.toml` can be configured to filter posts from sending notifications.
 
-| **Key**               | **Description**                                          | **Type**         | **Required** | **Example**                                         |
-| --------------------- | -------------------------------------------------------- | ---------------- | ------------ | --------------------------------------------------- |
-| `usernames`           | X usernames to track.                                    | Array of Strings | Yes          | `["RockstarGames", "CallofDuty", "Mxtive"]`         |
-| `discord_webhook_url` | Discord Webhook URL to send post notifications to.       | String           | Yes          | `https://discord.com/api/webhook/XXXXXXXX/XXXXXXXX` |
-| `require_media`       | Set to `true` to only notify of posts with media.        | Boolean          | No           | `true`                                              |
-| `require_keyword`     | Only notify of the post if one of these words are found. | Array of Strings | No           | `["trailer", "new", "announcement", "delay"]`       |
-| `exclude_reply`       | Set to `true` to skip posts that are replies.            | Boolean          | No           | `true`                                              |
-| `exclude_repost`      | Set to `true` to skip posts that are reposts.            | Boolean          | No           | `true`                                              |
-| `exclude_keyword`     | Skip the post if at least one of these words are found.  | Array of Strings | No           | `["store", "price", "shop", "bundle"]`              |
+| **Key**               | **Description**                                                     | **Type**         | **Required** | **Example**                                         |
+| --------------------- | ------------------------------------------------------------------- | ---------------- | ------------ | --------------------------------------------------- |
+| `usernames`           | X usernames to track.                                               | Array of Strings | Yes          | `["RockstarGames", "CallofDuty", "Mxtive"]`         |
+| `discord_webhook_url` | Discord Webhook URL to send post notifications to.                  | String           | Yes          | `https://discord.com/api/webhook/XXXXXXXX/XXXXXXXX` |
+| `require_media`       | Set to `true` to only notify of posts with media.                   | Boolean          | No           | `true`                                              |
+| `require_keyword`     | Only notify of the post if one of these words are found.            | Array of Strings | No           | `["trailer", "new", "announcement", "delay"]`       |
+| `exclude_reply`       | Set to `true` to skip posts that are replies.                       | Boolean          | No           | `true`                                              |
+| `exclude_repost`      | Set to `true` to skip posts that are reposts.                       | Boolean          | No           | `true`                                              |
+| `exclude_keyword`     | Skip the post if at least one of these words are found.             | Array of Strings | No           | `["store", "price", "shop", "bundle"]`              |
+| `loop_delay`          | Amount of time (in seconds) to wait between checking for new posts. | Integer          | No           | `900`                                               |

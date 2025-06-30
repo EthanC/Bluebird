@@ -9,3 +9,4 @@ require_media = true
 usernames = ["CallofDuty"]
 discord_webhook_url = "https://discord.com/api/webhooks/ZZZZZZZZ/ZZZZZZZZ"
 exclude_keywords = ["warzone", "bundle"]
+loop_delay = 900
