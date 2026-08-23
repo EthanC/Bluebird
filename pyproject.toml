@@ -1,24 +1,22 @@
 [project]
 name = "bluebird"
-version = "2.1.0"
-description = "Monitor users on X and report new posts via Discord."
+version = "2.2.0"
+description = "Monitor users on X (Twitter) and report new posts via Discord."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
+authors = [{ name = "EthanC", email = "16727756+EthanC@users.noreply.github.com" }]
 dependencies = [
-    "environs>=14.2.0",
-    "loguru>=0.7.3",
-    "loguru-discord>=1.4.0",
-    "httpx>=0.28.1",
-    "discord-clyde>=0.2.2",
+  "discord-clyde>=1.0.0",
+  "environs>=15.1.0",
+  "httpx>=0.28.1",
+  "loguru>=0.7.3",
+  "loguru-discord>=2.1.0",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.uv]
-dev-dependencies = [
-    "ruff>=0.12.1",
+[dependency-groups]
+dev = [
+  "ruff>=0.16.4",
+  "ty>=0.0.73",
 ]
 
 [tool.ruff]
@@ -30,3 +28,6 @@ select = ["I"]
 
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false
+
+[tool.uv]
+package = false
