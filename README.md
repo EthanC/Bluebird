@@ -28,7 +28,7 @@ Next, edit and run this example `compose.yaml` with `docker compose up`.
 services:
     bluebird:
         container_name: bluebird
-        image: ethanchrisp/bluebird:latest
+        image: ghcr.io/ethanc/bluebird:latest
         environment:
             LOG_LEVEL: INFO
             LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
@@ -41,7 +41,7 @@ services:
 ### Standalone: Python
 
 > [!NOTE]
-> Python 3.13 or later required.
+> Python 3.14 or later required.
 
 1. Install dependencies.
 
