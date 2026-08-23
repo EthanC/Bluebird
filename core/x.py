@@ -156,6 +156,8 @@ class XInstance:
         self.exclude_reply: bool = False
         self.exclude_repost: bool = False
         self.exclude_keyword: tuple[str, ...] = ()
+        self.proxy: bool = False
+        self.proxy_name: str = "X"
 
     def log(self: Self, username: str | None = None, post_id: str | None = None) -> str:
         """Craft the head of a log message given an instance and username."""
@@ -182,6 +184,11 @@ class XInstance:
         self.exclude_reply = config.exclude_reply
         self.exclude_repost = config.exclude_repost
         self.exclude_keyword = config.exclude_keyword
+        self.proxy = config.proxy
+        self.proxy_name = config.proxy_name if config.proxy else "X"
+        self.base_url = (
+            f"https://{config.proxy_host}/" if config.proxy else "https://x.com/"
+        )
 
         logger.info(f"{self.log()} Loaded instance configuration")
 
@@ -486,7 +493,7 @@ class XInstance:
         ]
 
         if bio:
-            bio = Format.x_text(bio, self.base_url)
+            bio = Format.x_text(bio, self.base_url, rewrite_urls=self.proxy)
 
             # Bio may have become None after formatting
             if bio:
@@ -519,7 +526,9 @@ class XInstance:
         if not text:
             return
 
-        text = Format.x_text(text, self.base_url, max_length=max_length - 4)
+        text = Format.x_text(
+            text, self.base_url, max_length=max_length - 4, rewrite_urls=self.proxy
+        )
 
         # Text may have become None after formatting
         if not text:
@@ -588,9 +597,12 @@ class XInstance:
 
     def build_post_outbound(self: Self, post: XPost) -> ActionRow:
         """Build actions for the provided X post."""
+        post_url: str = (
+            Format.x_url(post.url, self.base_url) if self.proxy else post.url
+        )
         outbound: ActionRow = ActionRow(
             components=[
-                LinkButton(label="View on X", url=post.url),
+                LinkButton(label=f"View on {self.proxy_name}", url=post_url),
                 LinkButton(
                     label="Powered by Bluebird",
                     url="https://github.com/EthanC/Bluebird",

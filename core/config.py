@@ -26,6 +26,9 @@ class XConfig:
     exclude_reply: bool = False
     exclude_repost: bool = False
     exclude_keyword: tuple[str, ...] = ()
+    proxy: bool = False
+    proxy_host: str = "xcancel.com"
+    proxy_name: str = "XCancel"
 
 
 def load_x_configs(path: Path) -> tuple[XConfig, ...]:
@@ -82,6 +85,9 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         "exclude_reply",
         "exclude_repost",
         "exclude_keyword",
+        "proxy",
+        "proxy_host",
+        "proxy_name",
     }
     unknown: set[str] = set(value) - allowed
 
@@ -127,6 +133,11 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         exclude_keyword=_string_list(
             value.get("exclude_keyword"), f"{label}.exclude_keyword"
         ),
+        proxy=_boolean(value, "proxy", label),
+        proxy_host=_proxy_host(value.get("proxy_host", "xcancel.com"), label),
+        proxy_name=_nonempty_string(
+            value.get("proxy_name", "XCancel"), "proxy_name", label
+        ),
     )
 
     return replace(config, state_key=_state_key(config))
@@ -140,6 +151,39 @@ def _boolean(config: dict[str, Any], key: str, label: str) -> bool:
         raise ValueError(f"{label}.{key} must be a Boolean")
 
     return value
+
+
+def _nonempty_string(value: Any, key: str, label: str) -> str:
+    """Read and normalize a non-empty string setting."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label}.{key} must be a non-empty string")
+
+    return value.strip()
+
+
+def _proxy_host(value: Any, label: str) -> str:
+    """Read a proxy hostname without a scheme, path, or port."""
+    host: str = _nonempty_string(value, "proxy_host", label)
+
+    try:
+        parsed = urlsplit(f"https://{host}")
+        port: int | None = parsed.port
+    except ValueError:
+        raise ValueError(f"{label}.proxy_host must be a hostname") from None
+
+    if (
+        parsed.hostname is None
+        or any(character.isspace() for character in host)
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(f"{label}.proxy_host must be a hostname")
+
+    return host
 
 
 def _string_list(value: Any, label: str, *, required: bool = False) -> tuple[str, ...]:
@@ -200,6 +244,9 @@ def _state_key(config: XConfig) -> str:
         config.exclude_reply,
         config.exclude_repost,
         tuple(sorted(keyword.casefold() for keyword in config.exclude_keyword)),
+        config.proxy,
+        config.proxy_host.casefold() if config.proxy else None,
+        config.proxy_name if config.proxy else None,
     )
     digest: str = sha256(repr(fields).encode()).hexdigest()[:16]
 

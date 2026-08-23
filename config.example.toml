@@ -4,6 +4,9 @@
 usernames = ["RockstarGames"]
 discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX"
 require_media = true
+proxy = true
+proxy_host = "xcancel.com"
+proxy_name = "XCancel"
 
 [[instances.x]]
 usernames = ["CallofDuty"]

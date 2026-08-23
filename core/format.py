@@ -2,7 +2,7 @@
 
 import re
 from re import Match, Pattern
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from clyde.markdown import Markdown
 
@@ -10,6 +10,7 @@ TOKEN_PATTERN: Pattern[str] = re.compile(
     r"(?P<url>https?://[^\s<>]+)|(?<![\w/])(?P<symbol>[@#$])(?P<name>\w+)"
 )
 MARKDOWN_PATTERN: Pattern[str] = re.compile(r"([\\`*_{}\[\]()<>#+\-.!|>~])")
+X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
 
 
 class Format:
@@ -22,9 +23,14 @@ class Format:
 
     @classmethod
     def x_text(
-        cls, text: str | None, base_url: str, *, max_length: int | None = None
+        cls,
+        text: str | None,
+        base_url: str,
+        *,
+        max_length: int | None = None,
+        rewrite_urls: bool = False,
     ) -> str | None:
-        """Escape text and link X entities without rewriting existing URLs."""
+        """Escape text, link X entities, and optionally rewrite X URLs."""
         if not text or not (text := text.strip()):
             return None
 
@@ -33,7 +39,7 @@ class Format:
 
         for token in TOKEN_PATTERN.finditer(text):
             formatted.append(cls.escape_markdown(text[position : token.start()]))
-            formatted.append(cls._token(token, base_url))
+            formatted.append(cls._token(token, base_url, rewrite_urls))
             position = token.end()
 
         formatted.append(cls.escape_markdown(text[position:]))
@@ -45,10 +51,10 @@ class Format:
         return cls._truncate(result, max_length)
 
     @classmethod
-    def _token(cls, token: Match[str], base_url: str) -> str:
+    def _token(cls, token: Match[str], base_url: str, rewrite_urls: bool) -> str:
         """Format one URL or X entity token."""
         if url := token.group("url"):
-            return url
+            return cls.x_url(url, base_url) if rewrite_urls else url
 
         symbol: str = token.group("symbol")
         name: str = token.group("name")
@@ -62,6 +68,20 @@ class Format:
             url = f"{base_url}search?q={quote(label, safe='')}"
 
         return Markdown.masked_link(label, url)
+
+    @staticmethod
+    def x_url(url: str, base_url: str) -> str:
+        """Replace an X or Twitter URL host with the configured base host."""
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return url
+
+        if parsed.hostname and parsed.hostname.casefold() in X_HOSTS:
+            base = urlsplit(base_url)
+            return parsed._replace(scheme=base.scheme, netloc=base.netloc).geturl()
+
+        return url
 
     @staticmethod
     def _truncate(text: str, max_length: int | None) -> str:

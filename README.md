@@ -15,6 +15,7 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 - Track several usernames and webhooks from one process.
 - Filter notifications by media, keywords, replies, and reposts.
+- Optionally route X links through a configurable proxy frontend.
 - Render posts with Discord components, media galleries, and links back to X.
 - Run from the published Docker container or directly with Python and `uv`.
 
@@ -76,6 +77,7 @@ discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX"
 require_keyword = ["trailer", "announcement"]
 exclude_reply = true
 cooldown = 900
+proxy = true
 ```
 
 | Key | Description | Type | Required | Default |
@@ -84,9 +86,10 @@ cooldown = 900
 | `discord_webhook_url` | Discord webhook that receives post notifications | String | Yes | None |
 | `cooldown` | Minimum seconds to wait after all usernames are checked | Number | No | `60` |
 | `require_media` | Send only posts that contain media | Boolean | No | `false` |
-| `require_keyword` | Send only posts containing at least one listed substring | String array | No | `[]` |
+| `require_keyword` | Send only posts containing at least one listed substring; case-insensitive | String array | No | `[]` |
 | `exclude_reply` | Skip replies | Boolean | No | `false` |
 | `exclude_repost` | Skip reposts | Boolean | No | `false` |
-| `exclude_keyword` | Skip posts containing any listed substring | String array | No | `[]` |
-
-Keyword matching ignores letter case. Bluebird validates usernames, webhook URLs, duplicate entries, unknown keys, and non-positive cooldowns before starting any workers.
+| `exclude_keyword` | Skip posts containing any listed substring; case-insensitive | String array | No | `[]` |
+| `proxy` | Replace navigational X links with proxy links; excludes media | Boolean | No | `false` |
+| `proxy_host` | Hostname used for proxy links; requires `proxy = true` | String | No | `"xcancel.com"` |
+| `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"XCancel"` |
