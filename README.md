@@ -21,7 +21,7 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 ## Docker Compose
 
-Copy `config.example.toml` to `config.toml`, add your usernames and Discord webhook URLs, then create `compose.yaml` beside it:
+Copy `config.example.toml` to `config.toml`, add your usernames and Discord webhook URLs, create a `data` directory, then create `compose.yaml` beside them:
 
 ```yaml
 services:
@@ -34,7 +34,7 @@ services:
       LOG_DISCORD_WEBHOOK_LEVEL: WARNING
     volumes:
       - ./config.toml:/bluebird/config.toml:ro
-      - ./state.toml:/bluebird/state.toml
+      - ./data:/bluebird/data
     restart: unless-stopped
 ```
 
@@ -62,7 +62,7 @@ Run Bluebird from the repository root:
 uv run bluebird.py
 ```
 
-Bluebird creates `state.toml` on startup. The first successful profile check records the newest post as the starting cursor; notifications begin with posts published afterward.
+Bluebird creates `data/state.toml` on startup. The first successful profile check records the newest post as the starting cursor; notifications begin with posts published afterward.
 
 ## Configuration
 

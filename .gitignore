@@ -220,5 +220,5 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Bluebird
+data/
 config.toml
-state.toml

@@ -66,7 +66,7 @@ def start() -> None:
     try:
         config_path: Path = PROJECT_ROOT / "config.toml"
         configs: tuple[XConfig, ...] = load_x_configs(config_path)
-        state: StateStore = StateStore(config_path.with_name("state.toml"))
+        state: StateStore = StateStore(PROJECT_ROOT / "data" / "state.toml")
     except Exception as e:
         logger.opt(exception=e).critical("Failed to initialize configuration and state")
 
