@@ -1,18 +1,36 @@
 """Entrypoint for Bluebird."""
 
 import logging
-import tomllib
-from os import environ
+from pathlib import Path
+from queue import Empty, Queue
 from sys import stdout
-from threading import Thread
-from time import sleep
-from typing import Any
+from threading import Event, Thread
 
 from environs import env
 from loguru import logger
 from loguru_discord import DiscordSink, Intercept
 
+from core.bettertwitfix import BetterTwitFix
+from core.config import XConfig, load_x_configs
+from core.fxembed import FxEmbed
+from core.state import StateStore
 from core.x import XInstance
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def run_instance(
+    instance: XInstance,
+    config: XConfig,
+    index: int,
+    stop: Event,
+    failures: Queue[tuple[int, Exception]],
+) -> None:
+    """Run an X instance and report unexpected termination to the parent."""
+    try:
+        instance.start(config, index, stop)
+    except Exception as error:
+        failures.put((index, error))
 
 
 def start() -> None:
@@ -23,7 +41,7 @@ def start() -> None:
     # Reroute standard logging to Loguru
     logging.basicConfig(handlers=[Intercept(None)], level=0, force=True)
 
-    if env.read_env(recurse=False):
+    if env.read_env(PROJECT_ROOT / ".env", recurse=False):
         logger.info("Loaded environment variables")
 
     if level := env.str("LOG_LEVEL", None):
@@ -35,38 +53,60 @@ def start() -> None:
     if url := env.url("LOG_DISCORD_WEBHOOK_URL", None):
         logger.add(
             DiscordSink(url.geturl()),
-            level=env.str("LOG_DISCORD_WEBHOOK_LEVEL"),
+            level=env.str("LOG_DISCORD_WEBHOOK_LEVEL", "WARNING"),
             backtrace=False,
+            enqueue=True,
+            filter=lambda record: (
+                not (record["name"] or "").startswith(("clyde", "loguru_discord"))
+            ),
         )
 
         logger.info("Enabled logging to Discord webhook")
-        logger.trace(f"{url=}")
-
-    config: dict[str, Any] | None = None
 
     try:
-        with open("config.toml", "r") as file:
-            config = tomllib.loads(file.read())
+        config_path: Path = PROJECT_ROOT / "config.toml"
+        configs: tuple[XConfig, ...] = load_x_configs(config_path)
+        state: StateStore = StateStore(config_path.with_name("state.toml"))
     except Exception as e:
-        logger.opt(exception=e).critical("Failed to load config.toml")
+        logger.opt(exception=e).critical("Failed to initialize configuration and state")
 
-        return
+        raise SystemExit(1) from e
 
-    instances: dict[str, list[dict[str, Any]]] = config.get("instances", [])
+    logger.info(f"Loaded {len(configs):,} X instances from config.toml")
+    logger.info(f"Using persistent state at {state.path}")
 
-    logger.info(f"Loaded {len(instances):,} instances from config.toml")
-    logger.trace(f"{config=}")
+    stop: Event = Event()
+    failures: Queue[tuple[int, Exception]] = Queue()
+    threads: list[Thread] = []
 
-    for index, config in enumerate(instances.get("x", [])):
-        Thread(target=XInstance().start, args=[config, index], daemon=True).start()
+    for index, config in enumerate(configs):
+        instance = XInstance([BetterTwitFix(), FxEmbed()], state)
+        thread = Thread(
+            target=run_instance,
+            args=(instance, config, index, stop, failures),
+            name=f"x-{index}",
+        )
+        thread.start()
+        threads.append(thread)
 
-    # Keep parent thread alive so child threads continue to run
-    while True:
-        sleep(1)
+    try:
+        while not stop.wait(1):
+            try:
+                index, error = failures.get_nowait()
+            except Empty:
+                continue
+
+            raise RuntimeError(f"X[{index}] worker stopped unexpectedly") from error
+    except KeyboardInterrupt:
+        logger.info("Shutting down Bluebird")
+    finally:
+        stop.set()
+
+        for thread in threads:
+            thread.join()
+
+        logger.complete()
 
 
 if __name__ == "__main__":
-    try:
-        start()
-    except KeyboardInterrupt:
-        pass
+    start()

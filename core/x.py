@@ -1,16 +1,14 @@
-"""Module for X (Twitter) instances."""
+"""Monitor X (Twitter) posts from configurable data sources."""
 
 import random
 import re
-from datetime import datetime, timezone
-from operator import itemgetter
+from dataclasses import dataclass
 from os import environ
-from re import Pattern
-from time import sleep
-from typing import Any, Self
+from threading import Event
+from typing import Protocol, Self, Sequence
+from urllib.parse import urlsplit
 
-import httpx
-from clyde import Webhook
+from clyde import AllowedMentions, Webhook
 from clyde.components import (
     ActionRow,
     Container,
@@ -27,29 +25,137 @@ from clyde.components import (
 from clyde.markdown import Markdown
 from clyde.timestamp import Timestamp
 from environs import env
-from httpx import Response
 from loguru import logger
 
+from .config import XConfig
 from .format import Format
+from .state import StateStore, XCursor
 
-pattern_post_url: Pattern[str] = re.compile(
-    r"https://twitter\.com/([^/]+)/status/(\d+)"
-)
+USERNAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,15}")
+ALT_TEXT_MAX_LENGTH = 1_024
+MAIN_TEXT_MAX_LENGTH = 3_000
+RELATED_TEXT_MAX_LENGTH = 800
+
+
+def _valid_https_url(url: str, hosts: set[str] | None = None) -> bool:
+    """Return whether a URL is HTTPS and optionally uses an expected host."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and (hosts is None or parsed.hostname.casefold() in hosts)
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class XPostReference:
+    """Identify another X post."""
+
+    username: str
+    post_id: str
+
+    def __post_init__(self) -> None:
+        """Validate an X post reference."""
+        if not USERNAME_PATTERN.fullmatch(self.username) or not self.post_id.isdigit():
+            raise ValueError("Invalid X post reference")
+
+
+@dataclass(frozen=True, slots=True)
+class XMedia:
+    """Represent media attached to an X post."""
+
+    url: str
+    alt_text: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate attached media."""
+        if not _valid_https_url(self.url):
+            raise ValueError("Invalid X media URL")
+
+
+@dataclass(frozen=True, slots=True)
+class XPost:
+    """Represent a source-neutral X post."""
+
+    post_id: str
+    url: str
+    username: str
+    display_name: str
+    created_at: int
+    text: str | None = None
+    bio: str | None = None
+    profile_image_url: str | None = None
+    media: tuple[XMedia, ...] = ()
+    possibly_sensitive: bool = False
+    is_reply: bool = False
+    is_quote: bool = False
+    is_repost: bool = False
+    reply_to: XPostReference | None = None
+    quote_of: XPostReference | None = None
+    repost_of: XPostReference | None = None
+
+    def __post_init__(self) -> None:
+        """Validate normalized X post data."""
+        if not self.post_id.isdigit():
+            raise ValueError("Invalid X post ID")
+        if not USERNAME_PATTERN.fullmatch(self.username):
+            raise ValueError("Invalid X username")
+        if self.created_at <= 0:
+            raise ValueError("Invalid X post timestamp")
+        if not _valid_https_url(
+            self.url, {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}
+        ):
+            raise ValueError("Invalid X post URL")
+        if self.profile_image_url and not _valid_https_url(self.profile_image_url):
+            raise ValueError("Invalid X profile image URL")
+
+
+@dataclass(frozen=True, slots=True)
+class XFeed:
+    """Contain the posts and polling metadata returned by a data source."""
+
+    username: str
+    posts: tuple[XPost, ...]
+    max_age: float | None = None
+    complete: bool = True
+
+
+class XDataSource(Protocol):
+    """Provide normalized X post data."""
+
+    def fetch_user(self, username: str) -> XFeed | None:
+        """Fetch the latest available posts for an X user."""
+        ...
+
+    def fetch_post(self, username: str, post_id: str) -> XPost | None:
+        """Fetch one X post."""
+        ...
 
 
 class XInstance:
     """Class representing an X instance configuration."""
 
     base_url: str = "https://x.com/"
-    index: int
-    state: dict[str, int] = {}
-    usernames: list[str]
-    webhook_url: str | None
-    require_media: bool | None
-    require_keyword: list[str] | None
-    exclude_reply: bool | None
-    exclude_repost: bool | None
-    exclude_keyword: list[str] | None
+
+    def __init__(self: Self, sources: Sequence[XDataSource], state: StateStore) -> None:
+        """Initialize an X instance with its post data sources."""
+        self.sources: tuple[XDataSource, ...] = tuple(sources)
+        self.state: StateStore = state
+        self.index: int = 0
+        self.state_key: str = ""
+        self.usernames: tuple[str, ...] = ()
+        self.webhook_url: str = ""
+        self.require_media: bool = False
+        self.require_keyword: tuple[str, ...] = ()
+        self.exclude_reply: bool = False
+        self.exclude_repost: bool = False
+        self.exclude_keyword: tuple[str, ...] = ()
 
     def log(self: Self, username: str | None = None, post_id: str | None = None) -> str:
         """Craft the head of a log message given an instance and username."""
@@ -65,26 +171,37 @@ class XInstance:
 
         return head
 
-    def start(self: Self, config: dict[str, Any], index: int) -> None:
+    def start(self: Self, config: XConfig, index: int, stop: Event) -> None:
         """Run a continuous loop for the usernames within the X instance."""
         self.index = index
-        self.usernames = config.get("usernames", [])
-        self.webhook_url = config.get("discord_webhook_url")
-        self.require_media = config.get("require_media")
-        self.require_keyword = config.get("require_keyword")
-        self.exclude_reply = config.get("exclude_reply")
-        self.exclude_repost = config.get("exclude_repost")
-        self.exclude_keyword = config.get("exclude_keyword")
+        self.state_key = config.state_key
+        self.usernames = config.usernames
+        self.webhook_url = config.discord_webhook_url
+        self.require_media = config.require_media
+        self.require_keyword = config.require_keyword
+        self.exclude_reply = config.exclude_reply
+        self.exclude_repost = config.exclude_repost
+        self.exclude_keyword = config.exclude_keyword
 
         logger.info(f"{self.log()} Loaded instance configuration")
-        logger.trace(f"{self.log()} {self=}")
 
-        cooldown: float = config.get("cooldown", 60.0)
+        cooldown_configured: float = config.cooldown
 
-        while True:
+        while not stop.is_set():
+            cooldown: float = cooldown_configured
+
             for index, username in enumerate(self.usernames):
+                if stop.is_set():
+                    return
+
                 if environ.get("DEBUG_STATE"):
-                    self.state[username] = env.int("DEBUG_STATE")
+                    debug_created_at: int = env.int("DEBUG_STATE")
+                    self.state.set(
+                        self.state_key,
+                        username,
+                        XCursor(debug_created_at, "0"),
+                        force=True,
+                    )
 
                 cooldown_new: float | None = self.watch_user(username)
 
@@ -93,374 +210,283 @@ class XInstance:
 
                 if (index + 1) < len(self.usernames):
                     # Wait between watching users to avoid API load
-                    sleep(random.uniform(3.0, 10.0))
+                    if stop.wait(random.uniform(3.0, 10.0)):
+                        return
 
             logger.info(f"{self.log()} Instance is sleeping for {int(cooldown):,}s...")
 
-            sleep(cooldown)
+            stop.wait(cooldown)
 
     def watch_user(self: Self, username: str) -> float | None:
         """Process user data and trigger notifications."""
         logger.info(f"{self.log(username)} Checking for new posts...")
 
-        data: dict[str, Any] | None = self.fetch_user(username)
+        feed: XFeed | None = self.fetch_user(username)
 
-        if not data or not data.get("latest_tweets"):
+        if not feed:
             logger.debug(f"{self.log(username)} Received invalid data")
-            logger.trace(f"{self.log(username)} {data=}")
+            logger.trace(f"{self.log(username)} {feed=}")
 
             return
 
-        # Use proper username if available
-        username = data.get("screen_name", username)
+        if not feed.posts:
+            logger.debug(f"{self.log(username)} Received an empty feed")
 
-        posts: list[dict[str, Any]] = data["latest_tweets"]
+            return feed.max_age
 
-        if not self.state.get(username):
-            for post in reversed(posts):
-                if post_epoch := post.get("date_epoch"):
-                    self.state[username] = post_epoch
+        username = feed.username
+        posts: tuple[XPost, ...] = feed.posts
 
-                    logger.info(
-                        f"{self.log(username)} Set initial state ({self.state[username]})"
-                    )
+        cursor: XCursor | None = self.state.get(self.state_key, username)
 
-                    return
+        if cursor is None:
+            latest: XPost = max(
+                posts,
+                key=lambda post: XCursor(post.created_at, post.post_id).sort_key(),
+            )
+            cursor = XCursor(latest.created_at, latest.post_id)
+            self.state.set(self.state_key, username, cursor)
 
-        for post in posts:
-            post_id: str | None = post.get("tweetID")
-            post_epoch: int | None = post.get("date_epoch")
-
-            if not post_epoch:
-                logger.error(
-                    f"{self.log(username, post_id)} Skipped post, invalid data {post=}"
-                )
-                logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                continue
-
-            if post_epoch <= self.state[username]:
-                logger.debug(
-                    f"{self.log(username, post_id)} Skipped post, not new ({post_epoch} <= {self.state[username]})"
-                )
-                logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                continue
-
-            if post_epoch > self.state[username]:
-                self.state[username] = post_epoch
-
-                logger.info(
-                    f"{self.log(username)} Set latest state ({self.state[username]})"
-                )
-                logger.trace(f"{self.log(username)} {self.state=}")
-
-            if self.require_keyword:
-                keyword_found: str | None = None
-                post_text: str | None = post.get("text")
-
-                if not post_text:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-                for keyword in self.require_keyword:
-                    if keyword.lower() in post_text.lower():
-                        keyword_found = keyword
-
-                        break
-
-                if not keyword_found:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, keyword requirement not met"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-            if self.require_media:
-                if len(post.get("media_extended", [])) == 0:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, media requirement not met"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-            if self.exclude_reply:
-                if post.get("is_reply"):
-                    logger.debug(
-                        f"{self.log(username), post_id} Skipped post, replies excluded"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-            if self.exclude_repost:
-                if post.get("is_repost"):
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, reposts excluded"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-            if self.exclude_keyword:
-                keyword_found: str | None = None
-                post_text: str | None = post.get("text")
-
-                if post_text:
-                    for keyword in self.exclude_keyword:
-                        if keyword.lower() in post_text.lower():
-                            keyword_found = keyword
-
-                            break
-
-                if keyword_found:
-                    logger.debug(
-                        f"{self.log(username, post_id)} Skipped post, keyword {keyword_found} excluded"
-                    )
-                    logger.trace(f"{self.log(username, post_id)} {post=}")
-
-                    continue
-
-            # Avoid unnecessary redirects
-            if post_url := post.get("tweetURL"):
-                post_url = post_url.replace("twitter.com", "x.com")
-                post["tweetURL"] = post_url
-
-            logger.success(
-                f"{self.log(username, post_id)} Discovered new post {post_url}"
+            logger.info(
+                f"{self.log(username)} Set initial state ({cursor.created_at}, {cursor.post_id})"
             )
 
-            if not self.webhook_url:
+            return feed.max_age
+
+        for post in posts:
+            post_id: str = post.post_id
+            post_cursor = XCursor(post.created_at, post_id)
+
+            if not post_cursor.is_after(cursor):
                 logger.debug(
-                    f"{self.log(username, post_id)} Skipped notification, Webhook not configured"
+                    f"{self.log(username, post_id)} Skipped post, not newer than state"
                 )
-                logger.trace(f"{self.log(username, post_id)} {self=}")
+                logger.trace(f"{self.log(username, post_id)} {post=}")
 
                 continue
 
-            self.notify(username, post_id, post)
+            if reason := self.filter_reason(post):
+                logger.debug(f"{self.log(username, post_id)} Skipped post, {reason}")
+                logger.trace(f"{self.log(username, post_id)} {post=}")
+                self.state.set(self.state_key, username, post_cursor)
+                cursor = post_cursor
+
+                continue
+
+            logger.success(
+                f"{self.log(username, post_id)} Discovered new post {post.url}"
+            )
+
+            self.notify(post)
+            self.state.set(self.state_key, username, post_cursor)
+            cursor = post_cursor
+
+            logger.info(
+                f"{self.log(username)} Set latest state ({cursor.created_at}, {cursor.post_id})"
+            )
 
         logger.info(f"{self.log(username)} {len(posts):,} posts processed")
 
-        return data.get("max_age")
+        return feed.max_age
 
-    def fetch_user(self: Self, username: str) -> dict[str, Any] | None:
-        """Fetch the latest available data for the provided X username."""
-        data: dict[str, Any] | None = None
-        res: None | Response = None
+    def filter_reason(self: Self, post: XPost) -> str | None:
+        """Return the configured reason a post should be filtered."""
+        post_text: str = post.text or ""
+        folded_text: str = post_text.casefold()
 
-        try:
-            res = httpx.get(
-                f"https://api.vxtwitter.com/{username}",
-                params={
-                    "with_tweets": True,
-                    "timestamp": int(datetime.now(timezone.utc).timestamp()),
-                },
-                headers={"User-Agent": "https://github.com/EthanC/Bluebird"},
-            ).raise_for_status()
+        if self.require_keyword and not any(
+            keyword.casefold() in folded_text for keyword in self.require_keyword
+        ):
+            return "keyword requirement not met"
+        if self.require_media and not post.media:
+            return "media requirement not met"
+        if self.exclude_reply and post.is_reply:
+            return "replies excluded"
+        if self.exclude_repost and post.is_repost:
+            return "reposts excluded"
 
-            logger.debug(f"{self.log(username)} Requested data for user")
-            logger.trace(f"{self.log(username)} {res=}")
+        if keyword := next(
+            (
+                keyword
+                for keyword in self.exclude_keyword
+                if keyword.casefold() in folded_text
+            ),
+            None,
+        ):
+            return f"keyword {keyword} excluded"
 
-            data = res.json()
+        return None
 
-            if not data or not "latest_tweets" in data:
-                raise ValueError(
-                    f"Expected latest_tweets, received invalid data {data=}"
-                )
+    def fetch_user(self: Self, username: str) -> XFeed | None:
+        """Fetch and merge available feeds for an X user."""
+        feeds: list[XFeed] = []
 
-            # Sort posts chronologically
-            data["latest_tweets"] = sorted(
-                data["latest_tweets"], key=itemgetter("date_epoch")
-            )
+        for source in self.sources:
+            feed: XFeed | None = source.fetch_user(username)
 
-            # Add miscellaneous data to each post object
-            for post in data["latest_tweets"]:
-                post["user_bio"] = data.get("description")
-                post["is_repost"] = bool(post.get("retweetURL") or post.get("retweet"))
-                post["is_quote"] = bool(post.get("qrtURL"))
-                post["is_reply"] = bool(
-                    post.get("replyingToID") or data.get("replyingTo")
-                )
+            if feed:
+                feeds.append(feed)
 
-            # Set max_age based on response headers
-            if cache_control := res.headers.get("cache-control"):
-                data["max_age"] = float(cache_control.split("max-age=")[1])
-        except Exception as e:
-            # HTTP 500 happens often, don't log as error
-            if "500 Internal Server Error" in str(e):
-                logger.opt(exception=e).debug(
-                    f"{self.log(username)} Failed to fetch data for user"
-                )
-
-                return data
-
-            logger.opt(exception=e).error(
-                f"{self.log(username)} Failed to fetch data for user"
-            )
-
-            return data
-
-        logger.debug(f"{self.log(username)} Fetched data for user")
-        logger.trace(f"{self.log(username)} {data=}")
-
-        return data
-
-    def fetch_post(self: Self, username: str, post_id: str) -> dict[str, Any]:
-        """Fetch the post data for the provided username and post ID combination."""
-        data: dict[str, Any] = {}
-
-        try:
-            res: Response = httpx.get(
-                f"https://api.vxtwitter.com/{username}/status/{post_id}",
-                headers={"User-Agent": "https://github.com/EthanC/Bluebird"},
-            ).raise_for_status()
-
-            logger.debug(f"{self.log(username, post_id)} Requested post data")
-            logger.trace(f"{self.log(username, post_id)} {res=}")
-
-            data = res.json()
-
-            data["is_reply"] = bool(data.get("replyingToID") or data.get("replyingTo"))
-            data["is_repost"] = bool(data.get("retweetURL") or data.get("retweet"))
-            data["is_quote"] = bool(data.get("qrtURL"))
-        except Exception as e:
-            logger.opt(exception=e).error(
-                f"{self.log(username, post_id)} Failed to fetch post data"
-            )
-
-            return data
-
-        logger.debug(f"{self.log(username, post_id)} Fetched post data")
-        logger.trace(f"{self.log(username, post_id)} {data=}")
-
-        return data
-
-    def notify(
-        self: Self, username: str, post_id: str | None, post: dict[str, Any]
-    ) -> None:
-        """Send a Discord Webhook notification for the provided X post."""
-        if not self.webhook_url:
+        if not feeds:
             return
 
-        webhook: Webhook = Webhook(url=self.webhook_url)
+        complete_feeds: list[XFeed] = [feed for feed in feeds if feed.complete]
 
-        if post.get("is_reply") and post.get("replyingTo") and post.get("replyingToID"):
-            reply_parent: dict[str, Any] = self.fetch_post(
-                post["replyingTo"], post["replyingToID"]
+        if not complete_feeds:
+            logger.warning(
+                f"{self.log(username)} No complete source feed was available"
             )
 
-            webhook.add_component(
-                self.build_post(username, post_id, reply_parent, True)
+            return
+
+        posts_by_id: dict[str, XPost] = {}
+
+        for feed in complete_feeds:
+            for post in feed.posts:
+                posts_by_id.setdefault(post.post_id, post)
+
+        posts: tuple[XPost, ...] = tuple(
+            sorted(
+                posts_by_id.values(),
+                key=lambda post: XCursor(post.created_at, post.post_id).sort_key(),
             )
+        )
+        max_ages: list[float] = [
+            feed.max_age for feed in complete_feeds if feed.max_age is not None
+        ]
 
-        webhook.add_component(self.build_post(username, post_id, post))
-
-        if post.get("is_quote") and post.get("qrtURL"):
-            if re_match := re.match(pattern_post_url, post["qrtURL"]):
-                quote_username: str = re_match.group(1)
-                quote_post: dict[str, Any] = self.fetch_post(
-                    quote_username, re_match.group(2)
-                )
-
-                webhook.add_component(
-                    self.build_post(quote_username, post_id, quote_post, True)
-                )
-            else:
-                logger.warning(
-                    f"{self.log(username, post_id)} Failed to process Quote Post {post['qrtURL']}"
-                )
-
-        if post.get("is_repost") and post.get("retweetURL"):
-            if re_match := re.match(pattern_post_url, post["retweetURL"]):
-                repost_username: str = re_match.group(1)
-                repost: dict[str, Any] = self.fetch_post(
-                    repost_username, re_match.group(2)
-                )
-
-                webhook.add_component(
-                    self.build_post(repost_username, post_id, repost, True)
-                )
-            else:
-                logger.warning(
-                    f"{self.log(username, post_id)} Failed to process Repost {post['retweetURL']}"
-                )
-
-        webhook.add_component(
-            self.build_post_outbound(username, post_id, post["tweetURL"])
+        return XFeed(
+            username=complete_feeds[0].username,
+            posts=posts,
+            max_age=max(max_ages) if max_ages else None,
         )
 
-        logger.debug(f"{self.log(username, post_id)} Built Webhook for post")
-        logger.trace(f"{self.log(username, post_id)} {webhook=}")
+    def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
+        """Fetch a post from the first data source that provides it."""
+        for source in self.sources:
+            post: XPost | None = source.fetch_post(username, post_id)
 
-        webhook.execute()
+            if post and post.post_id == post_id:
+                return post
+
+            if post:
+                logger.error(
+                    f"{self.log(username, post_id)} {type(source).__name__} returned the wrong post"
+                )
+
+        return None
+
+    def notify(self: Self, post: XPost) -> None:
+        """Send a Discord Webhook notification for the provided X post."""
+        webhook: Webhook = Webhook(
+            url=self.webhook_url, allowed_mentions=AllowedMentions(parse=[])
+        )
+        post_containers: list[Container] = []
+
+        if post.reply_to:
+            reply_parent: XPost | None = self.fetch_post(
+                post.reply_to.username, post.reply_to.post_id
+            )
+
+            if reply_parent:
+                post_containers.append(
+                    self.build_post(reply_parent, True, include_footer=False)
+                )
+
+        post_containers.append(self.build_post(post))
+
+        if post.quote_of:
+            quote_post: XPost | None = self.fetch_post(
+                post.quote_of.username, post.quote_of.post_id
+            )
+
+            if quote_post:
+                post_containers.append(
+                    self.build_post(quote_post, True, include_footer=False)
+                )
+
+        if post.repost_of:
+            repost: XPost | None = self.fetch_post(
+                post.repost_of.username, post.repost_of.post_id
+            )
+
+            if repost:
+                post_containers.append(
+                    self.build_post(repost, True, include_footer=False)
+                )
+
+        container: Container = post_containers[0]
+
+        for post_container in post_containers[1:]:
+            container.add_component(
+                Seperator(divider=False, spacing=SeperatorSpacing.LARGE)
+            )
+            container.add_component(post_container.components)
+
+        webhook.add_component(container)
+        webhook.add_component(self.build_post_outbound(post))
+
+        logger.debug(f"{self.log(post.username, post.post_id)} Built Webhook for post")
+
+        try:
+            webhook.execute()
+        except Exception:
+            raise RuntimeError("Discord webhook delivery failed") from None
 
     def build_post(
-        self: Self,
-        username: str,
-        post_id: str | None,
-        post: dict[str, Any],
-        mini: bool = False,
+        self: Self, post: XPost, mini: bool = False, *, include_footer: bool = True
     ) -> Container:
         """Build a Discord Container Component for the provided X post."""
-        head: TextDisplay | Section = self.build_post_head(
-            username, post_id, post, mini
+        head: TextDisplay | Section = self.build_post_head(post, mini)
+        body: TextDisplay | None = self.build_post_body(
+            post, RELATED_TEXT_MAX_LENGTH if mini else MAIN_TEXT_MAX_LENGTH
         )
-        body: TextDisplay | None = self.build_post_body(username, post_id, post)
-        media: MediaGallery | None = self.build_post_media(username, post_id, post)
-        footer: TextDisplay = self.build_post_footer(username, post_id, post)
+        media: MediaGallery | None = None if mini else self.build_post_media(post)
 
         container: Container = Container(components=[head], accent_color="#000000")
 
-        if body and not post.get("is_repost"):
+        if body and not post.is_repost:
             container.add_component(body)
 
-        if media and not post.get("is_repost"):
+        if media and not post.is_repost:
             container.add_component(media)
 
-        container.add_component(Seperator(divider=True, spacing=SeperatorSpacing.SMALL))
-        container.add_component(footer)
+        if include_footer:
+            container.add_component(
+                Seperator(divider=True, spacing=SeperatorSpacing.SMALL)
+            )
+            container.add_component(self.build_post_footer(post))
 
-        logger.debug(f"{self.log(username, post_id)} Built Container for post")
-        logger.trace(f"{self.log(username, post_id)} {container=}")
+        logger.debug(
+            f"{self.log(post.username, post.post_id)} Built Container for post"
+        )
+        logger.trace(f"{self.log(post.username, post.post_id)} {container=}")
 
         return container
 
     def build_post_head(
-        self: Self,
-        username: str,
-        post_id: str | None,
-        post: dict[str, Any],
-        mini: bool = False,
+        self: Self, post: XPost, mini: bool = False
     ) -> TextDisplay | Section:
         """Build a Discord Text Display or Section Component for the provided X post."""
         name_username: str = Markdown.masked_link(
-            f"@{username}", f"{self.base_url}{username}"
+            f"@{post.username}", f"{self.base_url}{post.username}"
         )
-        name_display: str = post.get("user_name", username)
+        name_display: str = Format.escape_markdown(post.display_name)
 
         if mini:
             return TextDisplay(
                 content=Markdown.bold(f"{name_display} ({name_username})")
             )
 
-        bio: str | None = post.get("user_bio")
-        avatar: str | None = post.get("user_profile_image_url")
+        bio: str | None = post.bio
+        avatar: str | None = post.profile_image_url
 
         head_content: list[str] = [
             Markdown.header_1(f"{name_display} ({name_username})")
         ]
 
         if bio:
-            bio = Format.replace_mentions(bio, self.base_url)
-            bio = Format.replace_hashtags(bio, f"{self.base_url}hashtag/")
-            bio = Format.replace_cashtags(bio, f"{self.base_url}search?q=%24/")
+            bio = Format.x_text(bio, self.base_url)
 
             # Bio may have become None after formatting
             if bio:
@@ -468,11 +494,12 @@ class XInstance:
 
         if avatar:
             accessory: Thumbnail | LinkButton = Thumbnail(
-                media=UnfurledMediaItem(url=avatar.replace("_normal", ""))
+                media=UnfurledMediaItem(url=avatar.replace("_normal", "")),
+                description=f"X user @{post.username}'s avatar.",
             )
         else:
             accessory = LinkButton(
-                label="View Profile", url=f"{self.base_url}{username}"
+                label="View Profile", url=f"{self.base_url}{post.username}"
             )
 
         head: Section = Section(
@@ -480,23 +507,19 @@ class XInstance:
             accessory=accessory,
         )
 
-        logger.debug(f"{self.log(username, post_id)} Built head for post")
-        logger.trace(f"{self.log(username, post_id)} {head=}")
+        logger.debug(f"{self.log(post.username, post.post_id)} Built head for post")
+        logger.trace(f"{self.log(post.username, post.post_id)} {head=}")
 
         return head
 
-    def build_post_body(
-        self: Self, username: str, post_id: str | None, post: dict[str, Any]
-    ) -> TextDisplay | None:
+    def build_post_body(self: Self, post: XPost, max_length: int) -> TextDisplay | None:
         """Build a Discord Text Display Component for the provided X post."""
-        text: str | None = post.get("text")
+        text: str | None = post.text
 
         if not text:
             return
 
-        text = Format.replace_mentions(text, self.base_url)
-        text = Format.replace_hashtags(text, f"{self.base_url}hashtag/")
-        text = Format.replace_cashtags(text, f"{self.base_url}search?q=%24/")
+        text = Format.x_text(text, self.base_url, max_length=max_length - 4)
 
         # Text may have become None after formatting
         if not text:
@@ -504,34 +527,27 @@ class XInstance:
 
         body: TextDisplay = TextDisplay(content=Markdown.block_quote(text))
 
-        logger.debug(f"{self.log(username, post_id)} Built body for post")
-        logger.trace(f"{self.log(username, post_id)} {body=}")
+        logger.debug(f"{self.log(post.username, post.post_id)} Built body for post")
+        logger.trace(f"{self.log(post.username, post.post_id)} {body=}")
 
         return body
 
-    def build_post_media(
-        self: Self, username: str, post_id: str | None, post: dict[str, Any]
-    ) -> MediaGallery | None:
+    def build_post_media(self: Self, post: XPost) -> MediaGallery | None:
         """Build a Discord Media Gallery Component for the provided X post."""
-        media_raw: list[dict[str, Any]] | None = post.get("media_extended")
-
-        if not media_raw or len(media_raw) == 0:
+        if not post.media:
             return
 
         items: list[MediaGalleryItem] = []
 
-        for item_raw in media_raw:
-            url: Any = item_raw.get("url")
+        for post_media in post.media:
+            item: MediaGalleryItem = MediaGalleryItem(
+                media=UnfurledMediaItem(url=post_media.url)
+            )
 
-            if not url or not isinstance(url, str):
-                continue
+            if post_media.alt_text:
+                item.set_description(post_media.alt_text[:ALT_TEXT_MAX_LENGTH])
 
-            item: MediaGalleryItem = MediaGalleryItem(media=UnfurledMediaItem(url=url))
-
-            if alt_text := item_raw.get("altText"):
-                item.set_description(alt_text)
-
-            if post.get("possibly_sensitive", False):
+            if post.possibly_sensitive:
                 item.set_spoiler(True)
 
             items.append(item)
@@ -541,44 +557,40 @@ class XInstance:
 
         media: MediaGallery = MediaGallery(items=items)
 
-        logger.debug(f"{self.log(username, post_id)} Built media for post")
-        logger.trace(f"{self.log(username, post_id)} {media=}")
+        logger.debug(f"{self.log(post.username, post.post_id)} Built media for post")
+        logger.trace(f"{self.log(post.username, post.post_id)} {media=}")
 
         return media
 
-    def build_post_footer(
-        self: Self, username: str, post_id: str | None, post: dict[str, Any]
-    ) -> TextDisplay:
+    def build_post_footer(self: Self, post: XPost) -> TextDisplay:
         """Build a footer for the provided X post."""
-        posted: int | datetime = post.get("date_epoch", datetime.now())
+        posted: int = post.created_at
         ts_long: str = Timestamp.long_date_time(posted)
         ts_relative: str = Timestamp.relative_time(posted)
 
         action: str = "Posted"
 
-        if post.get("is_repost", False):
+        if post.is_repost:
             action = "Reposted"
-        elif post.get("is_quote", False):
+        elif post.is_quote:
             action = "Quoted"
-        elif post.get("is_reply", False):
+        elif post.is_reply:
             action = "Replied"
 
         footer: TextDisplay = TextDisplay(
             content=Markdown.subtext(f"{action} {ts_long} ({ts_relative})")
         )
 
-        logger.debug(f"{self.log(username, post_id)} Built footer for post")
-        logger.trace(f"{self.log(username, post_id)} {footer=}")
+        logger.debug(f"{self.log(post.username, post.post_id)} Built footer for post")
+        logger.trace(f"{self.log(post.username, post.post_id)} {footer=}")
 
         return footer
 
-    def build_post_outbound(
-        self: Self, username: str, post_id: str | None, post_url: str
-    ) -> ActionRow:
+    def build_post_outbound(self: Self, post: XPost) -> ActionRow:
         """Build actions for the provided X post."""
         outbound: ActionRow = ActionRow(
             components=[
-                LinkButton(label="View on X", url=post_url),
+                LinkButton(label="View on X", url=post.url),
                 LinkButton(
                     label="Powered by Bluebird",
                     url="https://github.com/EthanC/Bluebird",
@@ -586,7 +598,9 @@ class XInstance:
             ]
         )
 
-        logger.debug(f"{self.log(username, post_id)} Built outbound links for post")
-        logger.trace(f"{self.log(username, post_id)} {outbound=}")
+        logger.debug(
+            f"{self.log(post.username, post.post_id)} Built outbound links for post"
+        )
+        logger.trace(f"{self.log(post.username, post.post_id)} {outbound=}")
 
         return outbound

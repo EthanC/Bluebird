@@ -1,73 +1,92 @@
-# Bluebird
+<div align="center">
 
-![Python](https://img.shields.io/badge/Python-3-blue?logo=python&logoColor=white)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/ethanc/bluebird/workflow.yaml)
+# Bluebird
 
 Bluebird tracks users on X (formerly Twitter) and sends post notifications to Discord.
 
-![Example](/.github/images/readme_example.png)
+[![Python 3.14+](https://img.shields.io/badge/Python-3.14%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Build](https://img.shields.io/github/actions/workflow/status/EthanC/Bluebird/workflow.yaml?branch=main&style=flat-square&label=build)](https://github.com/EthanC/Bluebird/actions/workflows/workflow.yaml)
+
+</div>
+
+![A Bluebird post notification in Discord](.github/images/readme_example.png)
 
 ## Features
 
--   Monitor any public user on X - no login required.
--   Get structured alerts with rich Discord Components.
--   Fine-tune alerts using filters like keywords or media-only.
--   Deploy effortlessly with Docker or run locally with Python.
+- Track several usernames and webhooks from one process.
+- Filter notifications by media, keywords, replies, and reposts.
+- Render posts with Discord components, media galleries, and links back to X.
+- Run from the published Docker container or directly with Python and `uv`.
 
-## Getting Started
+## Docker Compose
 
-### Quick Start: Docker Compose
-
-Rename `config.example.toml` to `config.toml` and set your instance configuration(s).
-
-Next, edit and run this example `compose.yaml` with `docker compose up`.
+Copy `config.example.toml` to `config.toml`, add your usernames and Discord webhook URLs, then create `compose.yaml` beside it:
 
 ```yaml
 services:
-    bluebird:
-        container_name: bluebird
-        image: ghcr.io/ethanc/bluebird:latest
-        environment:
-            LOG_LEVEL: INFO
-            LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
-            LOG_DISCORD_WEBHOOK_LEVEL: WARNING
-        volumes:
-            - /local/path/to/config.toml:/bluebird/config.toml:ro
-        restart: unless-stopped
+  bluebird:
+    container_name: bluebird
+    image: ghcr.io/ethanc/bluebird:latest
+    environment:
+      LOG_LEVEL: INFO
+      LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
+      LOG_DISCORD_WEBHOOK_LEVEL: WARNING
+    volumes:
+      - ./config.toml:/bluebird/config.toml:ro
+      - ./state.toml:/bluebird/state.toml
+    restart: unless-stopped
 ```
 
-### Standalone: Python
+Start the container:
 
-> [!NOTE]
-> Python 3.14 or later required.
+```console
+docker compose up -d
+```
 
-1. Install dependencies.
+`LOG_DISCORD_WEBHOOK_URL` is optional. It sends Bluebird's own warning and error logs to a separate Discord webhook; post notifications use the webhooks in `config.toml`.
 
-    ```bash
-    uv sync
-    ```
+## Python
 
-2. Rename `.env.example` to `.env` and configure your environment.
+Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
 
-3. Rename `config.example.toml` to `config.toml` and set your instance configuration(s).
+```console
+uv sync
+```
 
-4. Run Bluebird
+Copy `config.example.toml` to `config.toml` and edit it. To change logging, also copy `.env.example` to `.env`; all three environment variables are optional.
 
-    ```bash
-    uv run bluebird.py
-    ```
+Run Bluebird from the repository root:
 
-### Configuration
+```console
+uv run bluebird.py
+```
 
-Each instance within `config.toml` can be configured to filter posts from sending notifications.
+Bluebird creates `state.toml` on startup. The first successful profile check records the newest post as the starting cursor; notifications begin with posts published afterward.
 
-| **Key**               | **Description**                                                     | **Type**         | **Required** | **Example**                                         |
-| --------------------- | ------------------------------------------------------------------- | ---------------- | ------------ | --------------------------------------------------- |
-| `usernames`           | X usernames to track.                                               | Array of Strings | Yes          | `["RockstarGames", "CallofDuty", "Mxtive"]`         |
-| `discord_webhook_url` | Discord Webhook URL to send post notifications to.                  | String           | Yes          | `https://discord.com/api/webhook/XXXXXXXX/XXXXXXXX` |
-| `require_media`       | Set to `true` to only notify of posts with media.                   | Boolean          | No           | `true`                                              |
-| `require_keyword`     | Only notify of the post if one of these words are found.            | Array of Strings | No           | `["trailer", "new", "announcement", "delay"]`       |
-| `exclude_reply`       | Set to `true` to skip posts that are replies.                       | Boolean          | No           | `true`                                              |
-| `exclude_repost`      | Set to `true` to skip posts that are reposts.                       | Boolean          | No           | `true`                                              |
-| `exclude_keyword`     | Skip the post if at least one of these words are found.             | Array of Strings | No           | `["store", "price", "shop", "bundle"]`              |
-| `cooldown`            | Amount of time (in seconds) to wait between checking for new posts. | Integer          | No           | `900`                                               |
+## Configuration
+
+Each `[[instances.x]]` table defines one polling loop, one or more usernames, and a destination webhook. Add another table when accounts need a different webhook, schedule, or filter set.
+
+```toml
+[instances]
+
+[[instances.x]]
+usernames = ["RockstarGames", "CallofDuty"]
+discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX"
+require_keyword = ["trailer", "announcement"]
+exclude_reply = true
+cooldown = 900
+```
+
+| Key | Description | Type | Required | Default |
+| --- | --- | --- | :---: | --- |
+| `usernames` | X usernames to track, without `@` | String array | Yes | None |
+| `discord_webhook_url` | Discord webhook that receives post notifications | String | Yes | None |
+| `cooldown` | Minimum seconds to wait after all usernames are checked | Number | No | `60` |
+| `require_media` | Send only posts that contain media | Boolean | No | `false` |
+| `require_keyword` | Send only posts containing at least one listed substring | String array | No | `[]` |
+| `exclude_reply` | Skip replies | Boolean | No | `false` |
+| `exclude_repost` | Skip reposts | Boolean | No | `false` |
+| `exclude_keyword` | Skip posts containing any listed substring | String array | No | `[]` |
+
+Keyword matching ignores letter case. Bluebird validates usernames, webhook URLs, duplicate entries, unknown keys, and non-positive cooldowns before starting any workers.

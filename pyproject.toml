@@ -1,6 +1,6 @@
 [project]
 name = "bluebird"
-version = "2.2.0"
+version = "3.0.0"
 description = "Monitor users on X (Twitter) and report new posts via Discord."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -8,9 +8,9 @@ authors = [{ name = "EthanC", email = "16727756+EthanC@users.noreply.github.com"
 dependencies = [
   "discord-clyde>=1.0.0",
   "environs>=15.1.0",
-  "httpx>=0.28.1",
   "loguru>=0.7.3",
   "loguru-discord>=2.1.0",
+  "niquests>=3.21.0",
 ]
 
 [dependency-groups]

@@ -4,27 +4,46 @@ on:
   push:
     branches:
       - main
-  pull_request:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  image:
-    name: Image
+  quality:
+    name: Quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.5"
       - name: Install Python
         run: uv python install
       - name: Install Dependencies
-        run: uv sync --dev
-      - name: Run ruff
-        run: uv run ruff check .
+        run: uv sync --locked --dev
+      - name: Run Ruff Lint
+        run: uv run ruff check --no-fix .
+      - name: Run Ruff Format Check
+        run: uv run ruff format --check .
+      - name: Run ty
+        run: uv run ty check
+
+  publish:
+    name: Publish
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
