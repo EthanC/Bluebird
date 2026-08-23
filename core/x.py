@@ -1,3 +1,5 @@
+"""Module for X (Twitter) instances."""
+
 import random
 import re
 from datetime import datetime, timezone
@@ -98,10 +100,7 @@ class XInstance:
             sleep(cooldown)
 
     def watch_user(self: Self, username: str) -> float | None:
-        """
-        Processes user data and trigger notifications upon the discovery
-        of new posts for the provided X username.
-        """
+        """Process user data and trigger notifications."""
         logger.info(f"{self.log(username)} Checking for new posts...")
 
         data: dict[str, Any] | None = self.fetch_user(username)
@@ -347,6 +346,9 @@ class XInstance:
         self: Self, username: str, post_id: str | None, post: dict[str, Any]
     ) -> None:
         """Send a Discord Webhook notification for the provided X post."""
+        if not self.webhook_url:
+            return
+
         webhook: Webhook = Webhook(url=self.webhook_url)
 
         if post.get("is_reply") and post.get("replyingTo") and post.get("replyingToID"):
@@ -407,8 +409,6 @@ class XInstance:
         mini: bool = False,
     ) -> Container:
         """Build a Discord Container Component for the provided X post."""
-        container: Container = Container(accent_color="#000000")
-
         head: TextDisplay | Section = self.build_post_head(
             username, post_id, post, mini
         )
@@ -416,7 +416,7 @@ class XInstance:
         media: MediaGallery | None = self.build_post_media(username, post_id, post)
         footer: TextDisplay = self.build_post_footer(username, post_id, post)
 
-        container.add_component(head)
+        container: Container = Container(components=[head], accent_color="#000000")
 
         if body and not post.get("is_repost"):
             container.add_component(body)
@@ -453,13 +453,9 @@ class XInstance:
         bio: str | None = post.get("user_bio")
         avatar: str | None = post.get("user_profile_image_url")
 
-        head: Section = Section()
-
-        head.add_component(
-            component=TextDisplay(
-                content=Markdown.header_1(f"{name_display} ({name_username})")
-            )
-        )
+        head_content: list[str] = [
+            Markdown.header_1(f"{name_display} ({name_username})")
+        ]
 
         if bio:
             bio = Format.replace_mentions(bio, self.base_url)
@@ -468,12 +464,21 @@ class XInstance:
 
             # Bio may have become None after formatting
             if bio:
-                head.add_component(TextDisplay(content=Markdown.subtext(bio)))
+                head_content.append(Markdown.subtext(bio))
 
         if avatar:
-            # Use full-size avatar
-            avatar = avatar.replace("_normal", "")
-            head.set_accessory(accessory=Thumbnail(media=UnfurledMediaItem(url=avatar)))
+            accessory: Thumbnail | LinkButton = Thumbnail(
+                media=UnfurledMediaItem(url=avatar.replace("_normal", ""))
+            )
+        else:
+            accessory = LinkButton(
+                label="View Profile", url=f"{self.base_url}{username}"
+            )
+
+        head: Section = Section(
+            components=[TextDisplay(content=content) for content in head_content],
+            accessory=accessory,
+        )
 
         logger.debug(f"{self.log(username, post_id)} Built head for post")
         logger.trace(f"{self.log(username, post_id)} {head=}")
@@ -513,12 +518,15 @@ class XInstance:
         if not media_raw or len(media_raw) == 0:
             return
 
-        media: MediaGallery = MediaGallery()
+        items: list[MediaGalleryItem] = []
 
         for item_raw in media_raw:
-            item: MediaGalleryItem = MediaGalleryItem(
-                media=UnfurledMediaItem(url=item_raw.get("url"))
-            )
+            url: Any = item_raw.get("url")
+
+            if not url or not isinstance(url, str):
+                continue
+
+            item: MediaGalleryItem = MediaGalleryItem(media=UnfurledMediaItem(url=url))
 
             if alt_text := item_raw.get("altText"):
                 item.set_description(alt_text)
@@ -526,7 +534,12 @@ class XInstance:
             if post.get("possibly_sensitive", False):
                 item.set_spoiler(True)
 
-            media.add_item(item)
+            items.append(item)
+
+        if not items:
+            return
+
+        media: MediaGallery = MediaGallery(items=items)
 
         logger.debug(f"{self.log(username, post_id)} Built media for post")
         logger.trace(f"{self.log(username, post_id)} {media=}")
@@ -536,8 +549,7 @@ class XInstance:
     def build_post_footer(
         self: Self, username: str, post_id: str | None, post: dict[str, Any]
     ) -> TextDisplay:
-        """Build a Discord Seperator and Text Display Component for the provided X post."""
-
+        """Build a footer for the provided X post."""
         posted: int | datetime = post.get("date_epoch", datetime.now())
         ts_long: str = Timestamp.long_date_time(posted)
         ts_relative: str = Timestamp.relative_time(posted)
@@ -563,15 +575,15 @@ class XInstance:
     def build_post_outbound(
         self: Self, username: str, post_id: str | None, post_url: str
     ) -> ActionRow:
-        """Build a Discord Action Row Component for the provided X post."""
-
-        outbound: ActionRow = ActionRow()
-
-        outbound.add_component(LinkButton(label="View on X", url=post_url))
-        outbound.add_component(
-            LinkButton(
-                label="Powered by Bluebird", url="https://github.com/EthanC/Bluebird"
-            )
+        """Build actions for the provided X post."""
+        outbound: ActionRow = ActionRow(
+            components=[
+                LinkButton(label="View on X", url=post_url),
+                LinkButton(
+                    label="Powered by Bluebird",
+                    url="https://github.com/EthanC/Bluebird",
+                ),
+            ]
         )
 
         logger.debug(f"{self.log(username, post_id)} Built outbound links for post")

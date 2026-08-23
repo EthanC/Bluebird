@@ -2,8 +2,6 @@
 
 ![Python](https://img.shields.io/badge/Python-3-blue?logo=python&logoColor=white)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/ethanc/bluebird/workflow.yaml)
-![Docker Pulls](https://img.shields.io/docker/pulls/ethanchrisp/bluebird)
-![Docker Image Size (tag)](https://img.shields.io/docker/image-size/ethanchrisp/bluebird)
 
 Bluebird tracks users on X (formerly Twitter) and sends post notifications to Discord.
 
@@ -11,7 +9,7 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 ## Features
 
--   Monitor any public user on X — no login required (thanks to [dylanpdx/BetterTwitFix](https://github.com/dylanpdx/BetterTwitFix)).
+-   Monitor any public user on X - no login required.
 -   Get structured alerts with rich Discord Components.
 -   Fine-tune alerts using filters like keywords or media-only.
 -   Deploy effortlessly with Docker or run locally with Python.

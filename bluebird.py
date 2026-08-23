@@ -1,3 +1,5 @@
+"""Entrypoint for Bluebird."""
+
 import logging
 import tomllib
 from os import environ
@@ -8,37 +10,31 @@ from typing import Any
 
 from environs import env
 from loguru import logger
-from loguru_discord import DiscordSink
+from loguru_discord import DiscordSink, Intercept
 
-from core.intercept import Intercept
 from core.x import XInstance
 
 
 def start() -> None:
     """Initialize Bluebird and begin primary functionality."""
-
-    logger.success("Bluebird")
-    logger.success("https://github.com/EthanC/Bluebird")
+    logger.info("Bluebird")
+    logger.info("https://github.com/EthanC/Bluebird")
 
     # Reroute standard logging to Loguru
-    logging.basicConfig(handlers=[Intercept()], level=0, force=True)
+    logging.basicConfig(handlers=[Intercept(None)], level=0, force=True)
 
     if env.read_env(recurse=False):
         logger.info("Loaded environment variables")
 
-    if environ.get("LOG_LEVEL"):
-        level: str = env.str("LOG_LEVEL")
-
+    if level := env.str("LOG_LEVEL", None):
         logger.remove()
         logger.add(stdout, level=level)
 
         logger.info(f"Set console logging level to {level}")
 
-    if environ.get("LOG_DISCORD_WEBHOOK_URL"):
-        url: str = env.url("LOG_DISCORD_WEBHOOK_URL").geturl()
-
+    if url := env.url("LOG_DISCORD_WEBHOOK_URL", None):
         logger.add(
-            DiscordSink(url),
+            DiscordSink(url.geturl()),
             level=env.str("LOG_DISCORD_WEBHOOK_LEVEL"),
             backtrace=False,
         )

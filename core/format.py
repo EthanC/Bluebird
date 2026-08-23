@@ -1,3 +1,5 @@
+"""Utility functions for text formatting."""
+
 import re
 from re import Pattern
 

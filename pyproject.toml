@@ -23,11 +23,16 @@ dev = [
 fix = true
 show-fixes = true
 
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "lf"
+skip-magic-trailing-comma = true
+
 [tool.ruff.lint]
-select = ["I"]
+select = ["I", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
 
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false
-
-[tool.uv]
-package = false
