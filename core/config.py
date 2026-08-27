@@ -22,6 +22,7 @@ class XConfig:
     state_key: str
     cooldown: float = 60.0
     retries: int = 3
+    retry_delay: float = 5.0
     require_media: bool = False
     require_keyword: tuple[str, ...] = ()
     exclude_reply: bool = False
@@ -82,6 +83,7 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         "discord_webhook_url",
         "cooldown",
         "retries",
+        "retry_delay",
         "require_media",
         "require_keyword",
         "exclude_reply",
@@ -126,12 +128,23 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
     if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
         raise ValueError(f"{label}.retries must be a non-negative integer")
 
+    retry_delay: Any = value.get("retry_delay", 5.0)
+
+    if (
+        isinstance(retry_delay, bool)
+        or not isinstance(retry_delay, int | float)
+        or not math.isfinite(retry_delay)
+        or retry_delay < 0
+    ):
+        raise ValueError(f"{label}.retry_delay must be a non-negative finite number")
+
     config = XConfig(
         usernames=usernames,
         discord_webhook_url=webhook_url,
         state_key="",
         cooldown=float(cooldown),
         retries=retries,
+        retry_delay=float(retry_delay),
         require_media=_boolean(value, "require_media", label),
         require_keyword=_string_list(
             value.get("require_keyword"), f"{label}.require_keyword"

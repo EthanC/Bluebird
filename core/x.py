@@ -130,6 +130,7 @@ class XDataSource(Protocol):
     """Provide normalized X post data."""
 
     retries: int
+    retry_delay: float
 
     def fetch_user(self, username: str) -> XFeed | None:
         """Fetch the latest available posts for an X user."""
@@ -194,6 +195,7 @@ class XInstance:
 
         for source in self.sources:
             source.retries = config.retries
+            source.retry_delay = config.retry_delay
 
         logger.info(f"{self.log()} Loaded instance configuration")
 

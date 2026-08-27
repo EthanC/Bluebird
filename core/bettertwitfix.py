@@ -11,6 +11,7 @@ import niquests
 from loguru import logger
 from niquests import Response
 
+from .retry import retry_request
 from .x import XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
@@ -28,6 +29,7 @@ class BetterTwitFix:
     api_url: str = "https://api.vxtwitter.com"
     user_agent: str = "https://github.com/EthanC/Bluebird"
     retries: int = 3
+    retry_delay: float = 5.0
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
@@ -41,16 +43,21 @@ class BetterTwitFix:
     def fetch_user(self: Self, username: str) -> XFeed | None:
         """Fetch and normalize the latest available posts for an X user."""
         try:
-            res: Response = niquests.get(
-                f"{self.api_url}/{username}",
-                params={
-                    "with_tweets": "true",
-                    "timestamp": str(int(datetime.now(timezone.utc).timestamp())),
-                },
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=self.retries,
+            res: Response = retry_request(
+                lambda: niquests.get(
+                    f"{self.api_url}/{username}",
+                    params={
+                        "with_tweets": "true",
+                        "timestamp": str(int(datetime.now(timezone.utc).timestamp())),
+                    },
+                    headers={"User-Agent": self.user_agent},
+                    timeout=5,
+                    allow_redirects=False,
+                    retries=0,
+                ),
+                self.retries,
+                self.retry_delay,
+                niquests.RequestException,
             ).raise_for_status()
 
             logger.debug(f"{self.log(username)} Requested data for user")
@@ -110,12 +117,17 @@ class BetterTwitFix:
     def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
         """Fetch and normalize one X post."""
         try:
-            res: Response = niquests.get(
-                f"{self.api_url}/{username}/status/{post_id}",
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=self.retries,
+            res: Response = retry_request(
+                lambda: niquests.get(
+                    f"{self.api_url}/{username}/status/{post_id}",
+                    headers={"User-Agent": self.user_agent},
+                    timeout=5,
+                    allow_redirects=False,
+                    retries=0,
+                ),
+                self.retries,
+                self.retry_delay,
+                niquests.RequestException,
             ).raise_for_status()
 
             logger.debug(f"{self.log(username, post_id)} Requested post data")
@@ -295,12 +307,17 @@ class BetterTwitFix:
     def _redirected_username(self: Self, post_url: str, post_id: str) -> str | None:
         """Resolve a placeholder post URL to the canonical X username."""
         try:
-            res: Response = niquests.head(
-                post_url,
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=self.retries,
+            res: Response = retry_request(
+                lambda: niquests.head(
+                    post_url,
+                    headers={"User-Agent": self.user_agent},
+                    timeout=5,
+                    allow_redirects=False,
+                    retries=0,
+                ),
+                self.retries,
+                self.retry_delay,
+                niquests.RequestException,
             )
         except niquests.RequestException as e:
             logger.opt(exception=e).debug(

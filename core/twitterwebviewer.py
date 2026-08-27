@@ -12,6 +12,7 @@ from curl_cffi import requests
 from curl_cffi.requests import RequestsError, Response
 from loguru import logger
 
+from .retry import retry_request
 from .x import XFeed, XMedia, XPost, XPostReference
 
 
@@ -21,6 +22,7 @@ class TwitterWebViewer:
     api_url: str = "https://api.twitterwebviewer.com/api"
     impersonate: str = "chrome"
     retries: int = 3
+    retry_delay: float = 5.0
     hydration_workers: int = 4
     twitter_epoch_ms: int = 1_288_834_974_657
     post_cache_size: int = 1_000
@@ -163,13 +165,17 @@ class TwitterWebViewer:
     ) -> dict[str, Any] | None:
         """Fetch and validate one TwitterWebViewer response envelope."""
         try:
-            with requests.Session(retry=self.retries) as session:
-                res: Response = session.get(
+            res: Response = retry_request(
+                lambda: requests.get(
                     f"{self.api_url}/{path}",
                     timeout=5,
                     allow_redirects=False,
                     impersonate=self.impersonate,
-                )
+                ),
+                self.retries,
+                self.retry_delay,
+                RequestsError,
+            )
             res.raise_for_status()
 
             logger.debug(f"{self.log(username, post_id)} Requested data")

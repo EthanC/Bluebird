@@ -14,3 +14,4 @@ discord_webhook_url = "https://discord.com/api/webhooks/ZZZZZZZZ/ZZZZZZZZ"
 exclude_keyword = ["warzone", "bundle"]
 cooldown = 900
 retries = 3
+retry_delay = 5.0

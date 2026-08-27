@@ -8,6 +8,7 @@ import niquests
 from loguru import logger
 from niquests import Response
 
+from .retry import retry_request
 from .x import XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
@@ -21,6 +22,7 @@ class FxEmbed:
     api_url: str = "https://api.fxtwitter.com/2"
     user_agent: str = "https://github.com/EthanC/Bluebird"
     retries: int = 3
+    retry_delay: float = 5.0
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
@@ -34,12 +36,17 @@ class FxEmbed:
     def fetch_user(self: Self, username: str) -> XFeed | None:
         """Fetch and normalize the latest available posts for an X user."""
         try:
-            res: Response = niquests.get(
-                f"{self.api_url}/profile/{username}/statuses",
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=self.retries,
+            res: Response = retry_request(
+                lambda: niquests.get(
+                    f"{self.api_url}/profile/{username}/statuses",
+                    headers={"User-Agent": self.user_agent},
+                    timeout=5,
+                    allow_redirects=False,
+                    retries=0,
+                ),
+                self.retries,
+                self.retry_delay,
+                niquests.RequestException,
             ).raise_for_status()
 
             logger.debug(f"{self.log(username)} Requested data for user")
@@ -97,12 +104,17 @@ class FxEmbed:
     def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
         """Fetch and normalize one X post."""
         try:
-            res: Response = niquests.get(
-                f"{self.api_url}/status/{post_id}",
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=self.retries,
+            res: Response = retry_request(
+                lambda: niquests.get(
+                    f"{self.api_url}/status/{post_id}",
+                    headers={"User-Agent": self.user_agent},
+                    timeout=5,
+                    allow_redirects=False,
+                    retries=0,
+                ),
+                self.retries,
+                self.retry_delay,
+                niquests.RequestException,
             ).raise_for_status()
 
             logger.debug(f"{self.log(username, post_id)} Requested post data")
