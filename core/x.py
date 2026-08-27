@@ -2,7 +2,7 @@
 
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from os import environ
 from threading import Event
 from typing import Protocol, Self, Sequence
@@ -394,19 +394,26 @@ class XInstance:
         )
 
     def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
-        """Fetch a post from the first data source that provides it."""
+        """Fetch a post and supplement it with the first available author bio."""
+        fallback: XPost | None = None
+
         for source in self.sources:
             post: XPost | None = source.fetch_post(username, post_id)
 
             if post and post.post_id == post_id:
-                return post
+                if post.bio:
+                    return replace(fallback, bio=post.bio) if fallback else post
+
+                fallback = fallback or post
+
+                continue
 
             if post:
                 logger.error(
                     f"{self.log(username, post_id)} {type(source).__name__} returned the wrong post"
                 )
 
-        return None
+        return fallback
 
     def notify(self: Self, post: XPost) -> None:
         """Send a Discord Webhook notification for the provided X post."""
