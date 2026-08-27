@@ -421,6 +421,7 @@ class XInstance:
             url=self.webhook_url, allowed_mentions=AllowedMentions(parse=[])
         )
         post_containers: list[Container] = []
+        original_post: XPost | None = None
 
         if post.reply_to:
             reply_parent: XPost | None = self.fetch_post(
@@ -440,6 +441,7 @@ class XInstance:
             )
 
             if quote_post:
+                original_post = quote_post
                 post_containers.append(
                     self.build_post(quote_post, True, include_footer=False)
                 )
@@ -450,6 +452,7 @@ class XInstance:
             )
 
             if repost:
+                original_post = repost
                 post_containers.append(
                     self.build_post(repost, True, include_footer=False)
                 )
@@ -466,7 +469,7 @@ class XInstance:
         container.add_component(self.build_post_footer(post))
 
         webhook.add_component(container)
-        webhook.add_component(self.build_post_outbound(post))
+        webhook.add_component(self.build_post_outbound(post, original_post))
 
         logger.debug(f"{self.log(post.username, post.post_id)} Built Webhook for post")
 
@@ -634,7 +637,9 @@ class XInstance:
 
         return footer
 
-    def build_post_outbound(self: Self, post: XPost) -> ActionRow:
+    def build_post_outbound(
+        self: Self, post: XPost, original_post: XPost | None = None
+    ) -> ActionRow:
         """Build actions for the provided X post."""
         post_url: str = (
             Format.x_url(post.url, self.base_url) if self.proxy else post.url
@@ -645,10 +650,15 @@ class XInstance:
         original: XPostReference | None = post.repost_of or post.quote_of
 
         if original:
+            original_username: str = (
+                original_post.username
+                if original_post and original_post.post_id == original.post_id
+                else original.username
+            )
             components.append(
                 LinkButton(
                     label=f"View Original Post on {self.proxy_name}",
-                    url=f"{self.base_url}{original.username}/status/{original.post_id}",
+                    url=f"{self.base_url}{original_username}/status/{original.post_id}",
                 )
             )
 
