@@ -28,16 +28,6 @@ services:
   bluebird:
     container_name: bluebird
     image: ghcr.io/ethanc/bluebird:latest
-    environment:
-      LOG_LEVEL: INFO
-      LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
-      LOG_DISCORD_WEBHOOK_LEVEL: WARNING
-      SERVICE_FAILURE_THRESHOLD: "10"
-      SERVICE_DISABLE_SECONDS: "3600"
-      SERVICE_DISABLE_ERROR_THRESHOLD: "24"
-      DISABLE_BETTERTWITFIX: "false"
-      DISABLE_FXEMBED: "false"
-      DISABLE_TWITTERWEBVIEWER: "false"
     volumes:
       - ./config.toml:/bluebird/config.toml:ro
       - ./data:/bluebird/data
