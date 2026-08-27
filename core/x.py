@@ -464,7 +464,7 @@ class XInstance:
         self: Self, post: XPost, mini: bool = False, *, include_footer: bool = True
     ) -> Container:
         """Build a Discord Container Component for the provided X post."""
-        head: TextDisplay | Section = self.build_post_head(post, mini)
+        head: Section = self.build_post_head(post, mini)
         body: TextDisplay | None = self.build_post_body(
             post, RELATED_TEXT_MAX_LENGTH if mini else MAIN_TEXT_MAX_LENGTH
         )
@@ -491,33 +491,17 @@ class XInstance:
 
         return container
 
-    def build_post_head(
-        self: Self, post: XPost, mini: bool = False
-    ) -> TextDisplay | Section:
-        """Build a Discord Text Display or Section Component for the provided X post."""
+    def build_post_head(self: Self, post: XPost, mini: bool = False) -> Section:
+        """Build a Discord Section Component for the provided X post."""
         name_username: str = Markdown.masked_link(
             f"@{post.username}", f"{self.base_url}{post.username}"
         )
         name_display: str = Format.escape_markdown(post.display_name)
-
-        if mini:
-            return TextDisplay(
-                content=Markdown.bold(f"{name_display} ({name_username})")
-            )
-
-        bio: str | None = post.bio
         avatar: str | None = post.profile_image_url
-
-        head_content: list[str] = [
-            Markdown.header_1(f"{name_display} ({name_username})")
-        ]
+        bio: str | None = post.bio
 
         if bio:
             bio = Format.x_text(bio, self.base_url, rewrite_urls=self.proxy)
-
-            # Bio may have become None after formatting
-            if bio:
-                head_content.append(Markdown.subtext(bio))
 
         if avatar:
             accessory: Thumbnail | LinkButton = Thumbnail(
@@ -528,6 +512,24 @@ class XInstance:
             accessory = LinkButton(
                 label="View Profile", url=f"{self.base_url}{post.username}"
             )
+
+        if mini:
+            head_content: list[str] = [
+                Markdown.bold(f"{name_display} ({name_username})")
+            ]
+
+            if bio:
+                head_content.append(Markdown.subtext(bio))
+
+            return Section(
+                components=[TextDisplay(content=content) for content in head_content],
+                accessory=accessory,
+            )
+
+        head_content = [Markdown.header_1(f"{name_display} ({name_username})")]
+
+        if bio:
+            head_content.append(Markdown.subtext(bio))
 
         head: Section = Section(
             components=[TextDisplay(content=content) for content in head_content],
