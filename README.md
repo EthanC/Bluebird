@@ -32,6 +32,9 @@ services:
       LOG_LEVEL: INFO
       LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
       LOG_DISCORD_WEBHOOK_LEVEL: WARNING
+      DISABLE_BETTERTWITFIX: "false"
+      DISABLE_FXEMBED: "false"
+      DISABLE_TWITTERWEBVIEWER: "false"
     volumes:
       - ./config.toml:/bluebird/config.toml:ro
       - ./data:/bluebird/data
@@ -46,6 +49,8 @@ docker compose up -d
 
 `LOG_DISCORD_WEBHOOK_URL` is optional. It sends Bluebird's own warning and error logs to a separate Discord webhook; post notifications use the webhooks in `config.toml`.
 
+Each `DISABLE_*` variable is optional and defaults to `false`. Setting one to `true` disables that data source for every X instance. Bluebird logs a critical error and exits if all three data sources are disabled.
+
 ## Python
 
 Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
@@ -54,7 +59,7 @@ Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
 uv sync
 ```
 
-Copy `config.example.toml` to `config.toml` and edit it. To change logging, also copy `.env.example` to `.env`; all three environment variables are optional.
+Copy `config.example.toml` to `config.toml` and edit it. To configure logging or disable a data source, also copy `.env.example` to `.env`. All environment variables are optional.
 
 Run Bluebird from the repository root:
 
