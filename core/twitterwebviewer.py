@@ -103,7 +103,7 @@ class TwitterWebViewer:
                     detail: dict[str, Any] | None = future.result()
 
                     if detail is None:
-                        logger.error(
+                        logger.warning(
                             f"{self.log(feed_username, post_id)} Skipped unhydrated post data"
                         )
 
@@ -206,9 +206,17 @@ class TwitterWebViewer:
                     f"Expected successful data response, received {response_data=}"
                 )
         except (RequestsError, TypeError, ValueError, OverflowError) as e:
-            logger.opt(exception=e).error(
-                f"{self.log(username, post_id)} Failed to fetch data"
-            )
+            message: str = f"{self.log(username, post_id)} Failed to fetch data"
+
+            # This service frequently returns HTTP 403 and 500 responses.
+            if (
+                isinstance(e, RequestsError)
+                and e.response is not None
+                and e.response.status_code in (403, 500)
+            ):
+                logger.opt(exception=e).warning(message)
+            else:
+                logger.opt(exception=e).error(message)
 
             if self._is_not_found(e):
                 raise ServiceNotFound from e
