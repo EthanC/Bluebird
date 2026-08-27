@@ -27,8 +27,8 @@ class XConfig:
     exclude_repost: bool = False
     exclude_keyword: tuple[str, ...] = ()
     proxy: bool = False
-    proxy_host: str = "xcancel.com"
-    proxy_name: str = "XCancel"
+    proxy_host: str = "twstalker.com"
+    proxy_name: str = "TwStalker"
 
 
 def load_x_configs(path: Path) -> tuple[XConfig, ...]:
@@ -134,9 +134,9 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
             value.get("exclude_keyword"), f"{label}.exclude_keyword"
         ),
         proxy=_boolean(value, "proxy", label),
-        proxy_host=_proxy_host(value.get("proxy_host", "xcancel.com"), label),
+        proxy_host=_proxy_host(value.get("proxy_host", "twstalker.com"), label),
         proxy_name=_nonempty_string(
-            value.get("proxy_name", "XCancel"), "proxy_name", label
+            value.get("proxy_name", "TwStalker"), "proxy_name", label
         ),
     )
 

@@ -91,5 +91,5 @@ proxy = true
 | `exclude_repost` | Skip reposts | Boolean | No | `false` |
 | `exclude_keyword` | Skip posts containing any listed substring; case-insensitive | String array | No | `[]` |
 | `proxy` | Replace navigational X links with proxy links; excludes media | Boolean | No | `false` |
-| `proxy_host` | Hostname used for proxy links; requires `proxy = true` | String | No | `"xcancel.com"` |
-| `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"XCancel"` |
+| `proxy_host` | Hostname used for proxy links; requires `proxy = true` | String | No | `"twstalker.com"` |
+| `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"TwStalker"` |
