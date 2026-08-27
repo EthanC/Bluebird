@@ -14,6 +14,7 @@ from core.bettertwitfix import BetterTwitFix
 from core.config import XConfig, load_x_configs
 from core.fxembed import FxEmbed
 from core.state import StateStore
+from core.twitterwebviewer import TwitterWebViewer
 from core.x import XInstance
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -80,7 +81,7 @@ def start() -> None:
     threads: list[Thread] = []
 
     for index, config in enumerate(configs):
-        instance = XInstance([BetterTwitFix(), FxEmbed()], state)
+        instance = XInstance([BetterTwitFix(), FxEmbed(), TwitterWebViewer()], state)
         thread = Thread(
             target=run_instance,
             args=(instance, config, index, stop, failures),

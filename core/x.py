@@ -325,7 +325,7 @@ class XInstance:
         return None
 
     def fetch_user(self: Self, username: str) -> XFeed | None:
-        """Fetch and merge available feeds for an X user."""
+        """Fetch and safely merge available feeds for an X user."""
         feeds: list[XFeed] = []
 
         for source in self.sources:
@@ -347,9 +347,26 @@ class XInstance:
             return
 
         posts_by_id: dict[str, XPost] = {}
+        latest_complete_cursor: XCursor | None = max(
+            (
+                XCursor(post.created_at, post.post_id)
+                for feed in complete_feeds
+                for post in feed.posts
+            ),
+            key=XCursor.sort_key,
+            default=None,
+        )
 
-        for feed in complete_feeds:
+        for feed in feeds:
             for post in feed.posts:
+                post_cursor = XCursor(post.created_at, post.post_id)
+
+                if not feed.complete and (
+                    latest_complete_cursor is None
+                    or post_cursor.is_after(latest_complete_cursor)
+                ):
+                    continue
+
                 posts_by_id.setdefault(post.post_id, post)
 
         posts: tuple[XPost, ...] = tuple(
