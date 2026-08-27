@@ -622,15 +622,25 @@ class XInstance:
         post_url: str = (
             Format.x_url(post.url, self.base_url) if self.proxy else post.url
         )
-        outbound: ActionRow = ActionRow(
-            components=[
-                LinkButton(label=f"View on {self.proxy_name}", url=post_url),
+        components: list[LinkButton] = [
+            LinkButton(label=f"View Post on {self.proxy_name}", url=post_url)
+        ]
+        original: XPostReference | None = post.repost_of or post.quote_of
+
+        if original:
+            components.append(
                 LinkButton(
-                    label="Powered by Bluebird",
-                    url="https://github.com/EthanC/Bluebird",
-                ),
-            ]
+                    label=f"View Original Post on {self.proxy_name}",
+                    url=f"{self.base_url}{original.username}/status/{original.post_id}",
+                )
+            )
+
+        components.append(
+            LinkButton(
+                label="Powered by Bluebird", url="https://github.com/EthanC/Bluebird"
+            )
         )
+        outbound: ActionRow = ActionRow(components=components)
 
         logger.debug(
             f"{self.log(post.username, post.post_id)} Built outbound links for post"
