@@ -2,6 +2,8 @@
 
 import logging
 from collections.abc import Callable
+from functools import partial
+from math import isfinite
 from pathlib import Path
 from queue import Empty, Queue
 from sys import stdout
@@ -14,6 +16,7 @@ from loguru_discord import DiscordSink, Intercept
 from core.bettertwitfix import BetterTwitFix
 from core.config import XConfig, load_x_configs
 from core.fxembed import FxEmbed
+from core.service import ServiceCircuitBreaker
 from core.state import StateStore
 from core.twitterwebviewer import TwitterWebViewer
 from core.x import XDataSource, XInstance
@@ -65,6 +68,26 @@ def start() -> None:
 
         logger.info("Enabled logging to Discord webhook")
 
+    try:
+        failure_threshold: int = env.int("SERVICE_FAILURE_THRESHOLD", 10)
+        disable_seconds: float = env.float("SERVICE_DISABLE_SECONDS", 3_600.0)
+        disable_error_threshold: int = env.int("SERVICE_DISABLE_ERROR_THRESHOLD", 24)
+
+        if failure_threshold <= 0:
+            raise ValueError("SERVICE_FAILURE_THRESHOLD must be greater than zero")
+        if not isfinite(disable_seconds) or disable_seconds <= 0:
+            raise ValueError(
+                "SERVICE_DISABLE_SECONDS must be finite and greater than zero"
+            )
+        if disable_error_threshold <= 0:
+            raise ValueError(
+                "SERVICE_DISABLE_ERROR_THRESHOLD must be greater than zero"
+            )
+    except Exception as e:
+        logger.opt(exception=e).critical("Failed to initialize service disable rules")
+
+        raise SystemExit(1) from e
+
     source_factories: list[Callable[[], XDataSource]] = []
 
     for variable, name, factory in (
@@ -75,7 +98,10 @@ def start() -> None:
         if env.bool(variable, False):
             logger.warning(f"Disabled {name} data source service via {variable}")
         else:
-            source_factories.append(factory)
+            circuit_breaker = ServiceCircuitBreaker(
+                name, failure_threshold, disable_seconds, disable_error_threshold
+            )
+            source_factories.append(partial(factory, circuit_breaker))
 
     if not source_factories:
         logger.critical("All X data source services are disabled")

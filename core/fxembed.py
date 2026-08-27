@@ -9,6 +9,7 @@ from loguru import logger
 from niquests import Response
 
 from .retry import retry_request
+from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
 from .x import XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
@@ -24,6 +25,10 @@ class FxEmbed:
     retries: int = 3
     retry_delay: float = 5.0
 
+    def __init__(self: Self, circuit_breaker: ServiceCircuitBreaker) -> None:
+        """Initialize the data source with shared service health state."""
+        self.circuit_breaker: ServiceCircuitBreaker = circuit_breaker
+
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
         head: str = f"FxEmbed[@{username}]"
@@ -35,6 +40,10 @@ class FxEmbed:
 
     def fetch_user(self: Self, username: str) -> XFeed | None:
         """Fetch and normalize the latest available posts for an X user."""
+        return self.circuit_breaker.call(lambda: self._fetch_user(username))
+
+    def _fetch_user(self: Self, username: str) -> XFeed:
+        """Fetch one user feed while admitted by the circuit breaker."""
         try:
             res: Response = retry_request(
                 lambda: niquests.get(
@@ -94,7 +103,10 @@ class FxEmbed:
                 f"{self.log(username)} Failed to fetch data for user"
             )
 
-            return None
+            if self._is_not_found(e):
+                raise ServiceNotFound from e
+
+            raise ServiceFailure from e
 
         logger.debug(f"{self.log(username)} Fetched data for user")
         logger.trace(f"{self.log(username)} {feed=}")
@@ -103,6 +115,10 @@ class FxEmbed:
 
     def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
         """Fetch and normalize one X post."""
+        return self.circuit_breaker.call(lambda: self._fetch_post(username, post_id))
+
+    def _fetch_post(self: Self, username: str, post_id: str) -> XPost:
+        """Fetch one post while admitted by the circuit breaker."""
         try:
             res: Response = retry_request(
                 lambda: niquests.get(
@@ -139,12 +155,24 @@ class FxEmbed:
                 f"{self.log(username, post_id)} Failed to fetch post data"
             )
 
-            return None
+            if self._is_not_found(e):
+                raise ServiceNotFound from e
+
+            raise ServiceFailure from e
 
         logger.debug(f"{self.log(username, post_id)} Fetched post data")
         logger.trace(f"{self.log(username, post_id)} {post=}")
 
         return post
+
+    @staticmethod
+    def _is_not_found(error: Exception) -> bool:
+        """Return whether FxEmbed confirmed a resource is missing."""
+        return (
+            isinstance(error, niquests.HTTPError)
+            and error.response is not None
+            and error.response.status_code == 404
+        )
 
     def _normalize_post(self: Self, data: dict[str, Any]) -> XPost:
         """Translate an FxEmbed status object into the shared post model."""

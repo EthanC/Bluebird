@@ -32,6 +32,9 @@ services:
       LOG_LEVEL: INFO
       LOG_DISCORD_WEBHOOK_URL: https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY
       LOG_DISCORD_WEBHOOK_LEVEL: WARNING
+      SERVICE_FAILURE_THRESHOLD: "10"
+      SERVICE_DISABLE_SECONDS: "3600"
+      SERVICE_DISABLE_ERROR_THRESHOLD: "24"
       DISABLE_BETTERTWITFIX: "false"
       DISABLE_FXEMBED: "false"
       DISABLE_TWITTERWEBVIEWER: "false"
@@ -48,6 +51,10 @@ docker compose up -d
 ```
 
 `LOG_DISCORD_WEBHOOK_URL` is optional. It sends Bluebird's own warning and error logs to a separate Discord webhook; post notifications use the webhooks in `config.toml`.
+
+`SERVICE_FAILURE_THRESHOLD` and `SERVICE_DISABLE_SECONDS` are optional and default to `10` consecutive failures and `3600` seconds. The rules apply to every data source, but failures are tracked independently for each service across all X instances. A disabled service permits one recovery request after the configured duration; success restores it, while failure disables it again. An exhausted request, including its configured retries, counts as one failure. Confirmed missing resources do not count as failures.
+
+`SERVICE_DISABLE_ERROR_THRESHOLD` is optional and defaults to `24`. Bluebird emits an error after a service reaches that many consecutive disable periods, allowing `LOG_DISCORD_WEBHOOK_URL` to report a prolonged outage. The initial disable and each failed recovery probe count as one disable period. A successful recovery resets the count.
 
 Each `DISABLE_*` variable is optional and defaults to `false`. Setting one to `true` disables that data source for every X instance. Bluebird logs a critical error and exits if all three data sources are disabled.
 

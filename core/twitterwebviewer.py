@@ -13,6 +13,7 @@ from curl_cffi.requests import RequestsError, Response
 from loguru import logger
 
 from .retry import retry_request
+from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
 from .x import XFeed, XMedia, XPost, XPostReference
 
 
@@ -27,8 +28,9 @@ class TwitterWebViewer:
     twitter_epoch_ms: int = 1_288_834_974_657
     post_cache_size: int = 1_000
 
-    def __init__(self: Self) -> None:
-        """Initialize the bounded hydrated-post cache."""
+    def __init__(self: Self, circuit_breaker: ServiceCircuitBreaker) -> None:
+        """Initialize shared service health and the hydrated-post cache."""
+        self.circuit_breaker: ServiceCircuitBreaker = circuit_breaker
         self.post_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.post_cache_lock: Lock = Lock()
 
@@ -164,6 +166,14 @@ class TwitterWebViewer:
         self: Self, path: str, username: str, post_id: str | None = None
     ) -> dict[str, Any] | None:
         """Fetch and validate one TwitterWebViewer response envelope."""
+        return self.circuit_breaker.call(
+            lambda: self._request_data(path, username, post_id)
+        )
+
+    def _request_data(
+        self: Self, path: str, username: str, post_id: str | None = None
+    ) -> dict[str, Any]:
+        """Request one response while admitted by the circuit breaker."""
         try:
             res: Response = retry_request(
                 lambda: requests.get(
@@ -199,7 +209,10 @@ class TwitterWebViewer:
                 f"{self.log(username, post_id)} Failed to fetch data"
             )
 
-            return None
+            if self._is_not_found(e):
+                raise ServiceNotFound from e
+
+            raise ServiceFailure from e
 
         return data
 
@@ -229,6 +242,15 @@ class TwitterWebViewer:
 
             while len(self.post_cache) > self.post_cache_size:
                 self.post_cache.popitem(last=False)
+
+    @staticmethod
+    def _is_not_found(error: Exception) -> bool:
+        """Return whether TwitterWebViewer confirmed a resource is missing."""
+        return (
+            isinstance(error, RequestsError)
+            and error.response is not None
+            and error.response.status_code == 404
+        )
 
     def _normalize_post(
         self: Self,
