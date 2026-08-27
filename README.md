@@ -85,6 +85,7 @@ proxy = true
 | `usernames` | X usernames to track, without `@` | String array | Yes | None |
 | `discord_webhook_url` | Discord webhook that receives post notifications | String | Yes | None |
 | `cooldown` | Minimum seconds to wait after all usernames are checked | Number | No | `60` |
+| `retries` | Number of retries for each X data-service request | Integer | No | `3` |
 | `require_media` | Send only posts that contain media | Boolean | No | `false` |
 | `require_keyword` | Send only posts containing at least one listed substring; case-insensitive | String array | No | `[]` |
 | `exclude_reply` | Skip replies | Boolean | No | `false` |

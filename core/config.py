@@ -21,6 +21,7 @@ class XConfig:
     discord_webhook_url: str
     state_key: str
     cooldown: float = 60.0
+    retries: int = 3
     require_media: bool = False
     require_keyword: tuple[str, ...] = ()
     exclude_reply: bool = False
@@ -80,6 +81,7 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         "usernames",
         "discord_webhook_url",
         "cooldown",
+        "retries",
         "require_media",
         "require_keyword",
         "exclude_reply",
@@ -119,11 +121,17 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
     ):
         raise ValueError(f"{label}.cooldown must be a positive finite number")
 
+    retries: Any = value.get("retries", 3)
+
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise ValueError(f"{label}.retries must be a non-negative integer")
+
     config = XConfig(
         usernames=usernames,
         discord_webhook_url=webhook_url,
         state_key="",
         cooldown=float(cooldown),
+        retries=retries,
         require_media=_boolean(value, "require_media", label),
         require_keyword=_string_list(
             value.get("require_keyword"), f"{label}.require_keyword"

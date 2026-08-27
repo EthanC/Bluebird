@@ -20,6 +20,7 @@ class FxEmbed:
 
     api_url: str = "https://api.fxtwitter.com/2"
     user_agent: str = "https://github.com/EthanC/Bluebird"
+    retries: int = 3
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
@@ -38,6 +39,7 @@ class FxEmbed:
                 headers={"User-Agent": self.user_agent},
                 timeout=5,
                 allow_redirects=False,
+                retries=self.retries,
             ).raise_for_status()
 
             logger.debug(f"{self.log(username)} Requested data for user")
@@ -100,6 +102,7 @@ class FxEmbed:
                 headers={"User-Agent": self.user_agent},
                 timeout=5,
                 allow_redirects=False,
+                retries=self.retries,
             ).raise_for_status()
 
             logger.debug(f"{self.log(username, post_id)} Requested post data")

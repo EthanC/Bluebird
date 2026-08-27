@@ -20,6 +20,7 @@ class TwitterWebViewer:
 
     api_url: str = "https://api.twitterwebviewer.com/api"
     impersonate: str = "chrome"
+    retries: int = 3
     hydration_workers: int = 4
     twitter_epoch_ms: int = 1_288_834_974_657
     post_cache_size: int = 1_000
@@ -162,12 +163,13 @@ class TwitterWebViewer:
     ) -> dict[str, Any] | None:
         """Fetch and validate one TwitterWebViewer response envelope."""
         try:
-            res: Response = requests.get(
-                f"{self.api_url}/{path}",
-                timeout=5,
-                allow_redirects=False,
-                impersonate=self.impersonate,
-            )
+            with requests.Session(retry=self.retries) as session:
+                res: Response = session.get(
+                    f"{self.api_url}/{path}",
+                    timeout=5,
+                    allow_redirects=False,
+                    impersonate=self.impersonate,
+                )
             res.raise_for_status()
 
             logger.debug(f"{self.log(username, post_id)} Requested data")

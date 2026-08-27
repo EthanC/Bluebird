@@ -129,6 +129,8 @@ class XFeed:
 class XDataSource(Protocol):
     """Provide normalized X post data."""
 
+    retries: int
+
     def fetch_user(self, username: str) -> XFeed | None:
         """Fetch the latest available posts for an X user."""
         ...
@@ -189,6 +191,9 @@ class XInstance:
         self.base_url = (
             f"https://{config.proxy_host}/" if config.proxy else "https://x.com/"
         )
+
+        for source in self.sources:
+            source.retries = config.retries
 
         logger.info(f"{self.log()} Loaded instance configuration")
 
