@@ -417,7 +417,7 @@ class XInstance:
                     self.build_post(reply_parent, True, include_footer=False)
                 )
 
-        post_containers.append(self.build_post(post))
+        post_containers.append(self.build_post(post, include_footer=False))
 
         if post.quote_of:
             quote_post: XPost | None = self.fetch_post(
@@ -446,6 +446,9 @@ class XInstance:
                 Seperator(divider=False, spacing=SeperatorSpacing.LARGE)
             )
             container.add_component(post_container.components)
+
+        container.add_component(Seperator(divider=True, spacing=SeperatorSpacing.SMALL))
+        container.add_component(self.build_post_footer(post))
 
         webhook.add_component(container)
         webhook.add_component(self.build_post_outbound(post))
