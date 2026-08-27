@@ -30,13 +30,13 @@ class ServiceCircuitBreaker:
 
     def __init__(
         self: Self,
-        name: str,
+        service_name: str,
         failure_threshold: int,
         disable_seconds: float,
         disable_error_threshold: int,
     ) -> None:
         """Initialize a closed service circuit breaker."""
-        self.name: str = name
+        self.service_name: str = service_name
         self.failure_threshold: int = failure_threshold
         self.disable_seconds: float = disable_seconds
         self.disable_error_threshold: int = disable_error_threshold
@@ -85,7 +85,7 @@ class ServiceCircuitBreaker:
             self._probe_in_flight = True
             permit: _Permit = _Permit(self._generation, probe=True)
 
-        logger.info(f"Probing disabled {self.name} data source service")
+        logger.info(f"Probing disabled {self.service_name} data source service")
 
         return permit
 
@@ -107,7 +107,7 @@ class ServiceCircuitBreaker:
             self._failures = 0
 
         if restored:
-            logger.info(f"Restored {self.name} data source service")
+            logger.info(f"Restored {self.service_name} data source service")
 
     def _fail(self: Self, permit: _Permit) -> None:
         """Record a failed operation if its permit is still current."""
@@ -130,7 +130,7 @@ class ServiceCircuitBreaker:
 
         if failures is not None and disable_count is not None:
             message: str = (
-                f"Disabled {self.name} data source service for "
+                f"Disabled {self.service_name} data source service for "
                 f"{self.disable_seconds:g}s after {failures:,} consecutive failures "
                 f"(disable {disable_count:,})"
             )

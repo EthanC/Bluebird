@@ -20,6 +20,7 @@ from .x import XFeed, XMedia, XPost, XPostReference
 class TwitterWebViewer:
     """Fetch and normalize X posts with TwitterWebViewer."""
 
+    service_name: str = "TwitterWebViewer"
     api_url: str = "https://api.twitterwebviewer.com/api"
     impersonate: str = "chrome"
     retries: int = 3
@@ -36,7 +37,7 @@ class TwitterWebViewer:
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
-        head: str = f"TwitterWebViewer[@{username}]"
+        head: str = f"{self.service_name}[@{username}]"
 
         if post_id:
             head += f"[{post_id}]"
@@ -356,6 +357,7 @@ class TwitterWebViewer:
             username=username,
             display_name=self._text(actor.get("displayName")) or username,
             created_at=created_at,
+            source=self.service_name,
             text=self._text(detail.get("content"))
             or self._text(timeline.get("content")),
             bio=self._text(profile.get("bio")) if profile else None,

@@ -20,6 +20,7 @@ POST_URL_PATTERN: Pattern[str] = re.compile(
 class FxEmbed:
     """Fetch and normalize X posts with FxEmbed."""
 
+    service_name: str = "FxEmbed"
     api_url: str = "https://api.fxtwitter.com/2"
     user_agent: str = "https://github.com/EthanC/Bluebird"
     retries: int = 3
@@ -31,7 +32,7 @@ class FxEmbed:
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
-        head: str = f"FxEmbed[@{username}]"
+        head: str = f"{self.service_name}[@{username}]"
 
         if post_id:
             head += f"[{post_id}]"
@@ -229,6 +230,7 @@ class FxEmbed:
             username=username,
             display_name=self._string(author.get("name")) or username,
             created_at=int(created_at_raw),
+            source=self.service_name,
             text=self._string(data.get("text")),
             bio=self._string(author.get("description")),
             profile_image_url=self._profile_image_url(

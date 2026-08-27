@@ -88,6 +88,7 @@ class XPost:
     username: str
     display_name: str
     created_at: int
+    source: str
     text: str | None = None
     bio: str | None = None
     profile_image_url: str | None = None
@@ -616,7 +617,9 @@ class XInstance:
             action = "Replied"
 
         footer: TextDisplay = TextDisplay(
-            content=Markdown.subtext(f"{action} {ts_long} ({ts_relative})")
+            content=Markdown.subtext(
+                f"{action} {ts_long} ({ts_relative}) [{post.source}]"
+            )
         )
 
         logger.debug(f"{self.log(post.username, post.post_id)} Built footer for post")

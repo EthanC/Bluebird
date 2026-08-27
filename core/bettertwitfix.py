@@ -27,6 +27,7 @@ MAX_AGE_PATTERN: Pattern[str] = re.compile(
 class BetterTwitFix:
     """Fetch and normalize X posts with BetterTwitFix."""
 
+    service_name: str = "BetterTwitFix"
     api_url: str = "https://api.vxtwitter.com"
     user_agent: str = "https://github.com/EthanC/Bluebird"
     retries: int = 3
@@ -38,7 +39,7 @@ class BetterTwitFix:
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""
-        head: str = f"BetterTwitFix[@{username}]"
+        head: str = f"{self.service_name}[@{username}]"
 
         if post_id:
             head += f"[{post_id}]"
@@ -255,6 +256,7 @@ class BetterTwitFix:
             username=username,
             display_name=self._string(data.get("user_name")) or username,
             created_at=created_at,
+            source=self.service_name,
             text=self._string(data.get("text")),
             bio=user_bio
             or self._string(data.get("user_bio"))

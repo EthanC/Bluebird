@@ -90,16 +90,21 @@ def start() -> None:
 
     source_factories: list[Callable[[], XDataSource]] = []
 
-    for variable, name, factory in (
+    for variable, service_name, factory in (
         ("DISABLE_BETTERTWITFIX", "BetterTwitFix", BetterTwitFix),
         ("DISABLE_FXEMBED", "FxEmbed", FxEmbed),
         ("DISABLE_TWITTERWEBVIEWER", "TwitterWebViewer", TwitterWebViewer),
     ):
         if env.bool(variable, False):
-            logger.warning(f"Disabled {name} data source service via {variable}")
+            logger.warning(
+                f"Disabled {service_name} data source service via {variable}"
+            )
         else:
             circuit_breaker = ServiceCircuitBreaker(
-                name, failure_threshold, disable_seconds, disable_error_threshold
+                service_name,
+                failure_threshold,
+                disable_seconds,
+                disable_error_threshold,
             )
             source_factories.append(partial(factory, circuit_breaker))
 
