@@ -68,8 +68,8 @@ Bluebird reads environment variables from the process and an optional `.env` fil
 | `LOG_LEVEL` | Minimum level written to the console | String | No | `"DEBUG"` |
 | `LOG_DISCORD_WEBHOOK_URL` | Discord webhook that receives Bluebird's own logs; post notifications use the webhooks in `config.toml` | URL | No | None |
 | `LOG_DISCORD_WEBHOOK_LEVEL` | Minimum level sent to `LOG_DISCORD_WEBHOOK_URL` | String | No | `"WARNING"` |
-| `INTERNET_ARCHIVE_USERNAME` | Internet Archive account username; must be set with `INTERNET_ARCHIVE_PASSWORD` | String | Conditional | None |
-| `INTERNET_ARCHIVE_PASSWORD` | Internet Archive account password; must be set with `INTERNET_ARCHIVE_USERNAME` | String | Conditional | None |
+| `INTERNET_ARCHIVE_EMAIL` | Internet Archive account email address; must be set with `INTERNET_ARCHIVE_PASSWORD` | String | Conditional | None |
+| `INTERNET_ARCHIVE_PASSWORD` | Internet Archive account password; must be set with `INTERNET_ARCHIVE_EMAIL` | String | Conditional | None |
 | `SERVICE_FAILURE_THRESHOLD` | Consecutive failed requests before a data source is temporarily disabled; retries are counted as one request and confirmed missing resources are excluded | Integer | No | `10` |
 | `SERVICE_DISABLE_SECONDS` | Seconds a failed data source remains disabled before Bluebird makes one recovery request | Number | No | `3600` |
 | `SERVICE_DISABLE_ERROR_THRESHOLD` | Consecutive disable periods before Bluebird logs an error for a prolonged outage; a successful recovery resets the count | Integer | No | `24` |

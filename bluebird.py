@@ -70,18 +70,18 @@ def start() -> None:
         logger.info("Enabled logging to Discord webhook")
 
     try:
-        archive_username: str | None = env.str("INTERNET_ARCHIVE_USERNAME", None)
+        archive_email: str | None = env.str("INTERNET_ARCHIVE_EMAIL", None)
         archive_password: str | None = env.str("INTERNET_ARCHIVE_PASSWORD", None)
 
-        if (archive_username is None) != (archive_password is None):
+        if (archive_email is None) != (archive_password is None):
             raise ValueError(
-                "INTERNET_ARCHIVE_USERNAME and INTERNET_ARCHIVE_PASSWORD "
+                "INTERNET_ARCHIVE_EMAIL and INTERNET_ARCHIVE_PASSWORD "
                 "must be set together"
             )
 
         archive_account: InternetArchiveAccount | None = (
-            InternetArchiveAccount(archive_username, archive_password)
-            if archive_username is not None and archive_password is not None
+            InternetArchiveAccount(archive_email, archive_password)
+            if archive_email is not None and archive_password is not None
             else None
         )
     except Exception as e:
