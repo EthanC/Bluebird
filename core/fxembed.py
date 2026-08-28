@@ -8,8 +8,9 @@ import niquests
 from loguru import logger
 from niquests import Response
 
-from .retry import retry_request
+from .retry import retry_request, retry_transient_request
 from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
+from .state import XCursor
 from .x import XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
@@ -25,6 +26,8 @@ class FxEmbed:
     user_agent: str = "https://github.com/EthanC/Bluebird"
     retries: int = 3
     retry_delay: float = 5.0
+    supports_profile_lookup: bool = True
+    supports_timeline_parameters: bool = True
 
     def __init__(self: Self, circuit_breaker: ServiceCircuitBreaker) -> None:
         """Initialize the data source with shared service health state."""
@@ -39,66 +42,124 @@ class FxEmbed:
 
         return head
 
-    def fetch_user(self: Self, username: str) -> XFeed | None:
+    def fetch_user(
+        self: Self, username: str, cursor: XCursor | None = None
+    ) -> XFeed | None:
         """Fetch and normalize the latest available posts for an X user."""
-        return self.circuit_breaker.call(lambda: self._fetch_user(username))
+        return self.circuit_breaker.call(lambda: self._fetch_user(username, cursor))
 
-    def _fetch_user(self: Self, username: str) -> XFeed:
+    def _fetch_user(self: Self, username: str, cursor: XCursor | None) -> XFeed:
         """Fetch one user feed while admitted by the circuit breaker."""
         try:
-            res: Response = retry_request(
-                lambda: niquests.get(
-                    f"{self.api_url}/profile/{username}/statuses",
-                    headers={"User-Agent": self.user_agent},
-                    timeout=5,
-                    allow_redirects=False,
-                    retries=0,
-                ),
-                self.retries,
-                self.retry_delay,
-                niquests.RequestException,
-            ).raise_for_status()
+            page_cursor: str | None = None
+            seen_page_cursors: set[str] = set()
+            feed_username: str | None = None
+            posts_by_id: dict[str, XPost] = {}
+            feed: XFeed | None = None
 
-            logger.debug(f"{self.log(username)} Requested data for user")
-            logger.trace(f"{self.log(username)} {res=}")
-
-            data: Any = res.json()
-
-            if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-                raise ValueError(f"Expected results, received invalid data {data=}")
-
-            feed_username: str = self._feed_username(data["results"], username)
-            posts: list[XPost] = []
-
-            for post_data in data["results"]:
+            while True:
                 try:
-                    if (
-                        not isinstance(post_data, dict)
-                        or post_data.get("type") != "status"
-                    ):
-                        raise ValueError(
-                            f"Expected status object, received {post_data=}"
-                        )
-
-                    # FxEmbed omits the repost event ID and timestamp, so using its
-                    # original-post representation would change the notification.
-                    if post_data.get("reposted_by"):
-                        logger.debug(
-                            f"{self.log(feed_username)} Skipped lossy repost data"
-                        )
-
-                        continue
-
-                    posts.append(self._normalize_post(post_data))
-                except (TypeError, ValueError, OverflowError) as e:
-                    logger.opt(exception=e).error(
-                        f"{self.log(feed_username)} Skipped invalid post data"
+                    res: Response = self._request_timeline(
+                        username, cursor, page_cursor
                     )
-                    logger.trace(f"{self.log(feed_username)} {post_data=}")
+                except niquests.HTTPError as error:
+                    if (
+                        page_cursor is None
+                        and self.supports_profile_lookup
+                        and self._is_not_found(error)
+                    ):
+                        feed = XFeed(
+                            username=self._fetch_profile_username(username),
+                            posts=(),
+                            complete=False,
+                        )
+                        break
 
-            feed: XFeed = XFeed(
-                username=feed_username, posts=tuple(posts), complete=False
-            )
+                    raise
+
+                logger.debug(f"{self.log(username)} Requested data for user")
+                logger.trace(f"{self.log(username)} {res=}")
+
+                if res.status_code == 204:
+                    feed = XFeed(username=username, posts=(), complete=False)
+                    break
+
+                data: Any = res.json()
+
+                if not isinstance(data, dict) or not isinstance(
+                    data.get("results"), list
+                ):
+                    raise ValueError(f"Expected results, received invalid data {data=}")
+
+                results: list[Any] = data["results"]
+                feed_username = self._feed_username(results, username) or feed_username
+                reached_cursor: bool = False
+
+                for post_data in results:
+                    try:
+                        if (
+                            not isinstance(post_data, dict)
+                            or post_data.get("type") != "status"
+                        ):
+                            raise ValueError(
+                                f"Expected status object, received {post_data=}"
+                            )
+
+                        # FxEmbed omits the repost event ID and timestamp, so using its
+                        # original-post representation would change the notification.
+                        if post_data.get("reposted_by"):
+                            logger.debug(
+                                f"{self.log(feed_username or username)} Skipped lossy repost data"
+                            )
+                            continue
+
+                        post: XPost = self._normalize_post(post_data)
+                        posts_by_id.setdefault(post.post_id, post)
+
+                        if cursor and not XCursor(
+                            post.created_at, post.post_id
+                        ).is_after(cursor):
+                            reached_cursor = True
+                    except (TypeError, ValueError, OverflowError) as e:
+                        logger.opt(exception=e).error(
+                            f"{self.log(feed_username or username)} Skipped invalid post data"
+                        )
+                        logger.trace(
+                            f"{self.log(feed_username or username)} {post_data=}"
+                        )
+
+                cursor_data: Any = data.get("cursor")
+                bottom_cursor: str | None = (
+                    self._string(cursor_data.get("bottom"))
+                    if isinstance(cursor_data, dict)
+                    else None
+                )
+
+                if (
+                    not self.supports_timeline_parameters
+                    or cursor is None
+                    or reached_cursor
+                    or not bottom_cursor
+                    or bottom_cursor in seen_page_cursors
+                ):
+                    break
+
+                seen_page_cursors.add(bottom_cursor)
+                page_cursor = bottom_cursor
+
+            if feed is None:
+                if feed_username is None:
+                    feed_username = (
+                        self._fetch_profile_username(username)
+                        if self.supports_profile_lookup
+                        else username
+                    )
+
+                feed = XFeed(
+                    username=feed_username,
+                    posts=tuple(posts_by_id.values()),
+                    complete=False,
+                )
         except (niquests.RequestException, TypeError, ValueError, OverflowError) as e:
             logger.opt(exception=e).error(
                 f"{self.log(username)} Failed to fetch data for user"
@@ -113,6 +174,64 @@ class FxEmbed:
         logger.trace(f"{self.log(username)} {feed=}")
 
         return feed
+
+    def _request_timeline(
+        self: Self, username: str, cursor: XCursor | None, page_cursor: str | None
+    ) -> Response:
+        """Request one profile timeline page from FxEmbed."""
+        params: dict[str, str] | None = None
+
+        if self.supports_timeline_parameters:
+            params = {"count": "100", "with_replies": "1"}
+
+            if page_cursor:
+                params["cursor"] = page_cursor
+            elif cursor:
+                # Include the prior second so same-second posts can be compared by ID.
+                params["since"] = str(max(cursor.created_at - 1, 0))
+
+        return retry_request(
+            lambda: niquests.get(
+                f"{self.api_url}/profile/{username}/statuses",
+                params=params,
+                headers={"User-Agent": self.user_agent},
+                timeout=5,
+                allow_redirects=False,
+                retries=0,
+            ).raise_for_status(),
+            self.retries,
+            self.retry_delay,
+            niquests.RequestException,
+            retry_transient_request,
+        )
+
+    def _fetch_profile_username(self: Self, username: str) -> str:
+        """Fetch the canonical username for an available profile."""
+        res: Response = retry_request(
+            lambda: niquests.get(
+                f"{self.api_url}/profile/{username}",
+                headers={"User-Agent": self.user_agent},
+                timeout=5,
+                allow_redirects=False,
+                retries=0,
+            ).raise_for_status(),
+            self.retries,
+            self.retry_delay,
+            niquests.RequestException,
+            retry_transient_request,
+        )
+        data: Any = res.json()
+        profile: Any = data.get("user") if isinstance(data, dict) else None
+        profile_username: str | None = (
+            self._string(profile.get("screen_name"))
+            if isinstance(profile, dict)
+            else None
+        )
+
+        if not profile_username:
+            raise ValueError(f"Expected user profile, received invalid data {data=}")
+
+        return profile_username
 
     def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
         """Fetch and normalize one X post."""
@@ -164,11 +283,12 @@ class FxEmbed:
                 timeout=5,
                 allow_redirects=False,
                 retries=0,
-            ),
+            ).raise_for_status(),
             self.retries,
             self.retry_delay,
             niquests.RequestException,
-        ).raise_for_status()
+            retry_transient_request,
+        )
 
     @staticmethod
     def _is_not_found(error: Exception) -> bool:
@@ -249,7 +369,7 @@ class FxEmbed:
         )
 
     @classmethod
-    def _feed_username(cls, results: list[Any], fallback: str) -> str:
+    def _feed_username(cls, results: list[Any], fallback: str) -> str | None:
         """Find the canonical casing of the requested profile's username."""
         for result in results:
             if not isinstance(result, dict):
@@ -266,7 +386,7 @@ class FxEmbed:
                 if username and username.casefold() == fallback.casefold():
                     return username
 
-        return fallback
+        return None
 
     @classmethod
     def _quote_reference(cls, quote: Any) -> XPostReference | None:

@@ -135,7 +135,7 @@ class XDataSource(Protocol):
     retries: int
     retry_delay: float
 
-    def fetch_user(self, username: str) -> XFeed | None:
+    def fetch_user(self, username: str, cursor: XCursor | None = None) -> XFeed | None:
         """Fetch the latest available posts for an X user."""
         ...
 
@@ -261,7 +261,8 @@ class XInstance:
         """Process user data and trigger notifications."""
         logger.info(f"{self.log(username)} Checking for new posts...")
 
-        feed: XFeed | None = self.fetch_user(username)
+        polling_cursor: XCursor | None = self.state.get(self.state_key, username)
+        feed: XFeed | None = self.fetch_user(username, polling_cursor)
 
         if not feed:
             logger.debug(f"{self.log(username)} Received invalid data")
@@ -358,12 +359,14 @@ class XInstance:
 
         return None
 
-    def fetch_user(self: Self, username: str) -> XFeed | None:
+    def fetch_user(
+        self: Self, username: str, cursor: XCursor | None = None
+    ) -> XFeed | None:
         """Fetch and safely merge available feeds for an X user."""
         feeds: list[XFeed] = []
 
         for source in self.sources:
-            feed: XFeed | None = source.fetch_user(username)
+            feed: XFeed | None = source.fetch_user(username, cursor)
 
             if feed:
                 feeds.append(feed)

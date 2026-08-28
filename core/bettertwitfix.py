@@ -11,8 +11,9 @@ import niquests
 from loguru import logger
 from niquests import Response
 
-from .retry import retry_request
+from .retry import retry_request, retry_transient_request
 from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
+from .state import XCursor
 from .x import XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
@@ -46,7 +47,9 @@ class BetterTwitFix:
 
         return head
 
-    def fetch_user(self: Self, username: str) -> XFeed | None:
+    def fetch_user(
+        self: Self, username: str, cursor: XCursor | None = None
+    ) -> XFeed | None:
         """Fetch and normalize the latest available posts for an X user."""
         return self.circuit_breaker.call(lambda: self._fetch_user(username))
 
@@ -64,11 +67,12 @@ class BetterTwitFix:
                     timeout=5,
                     allow_redirects=False,
                     retries=0,
-                ),
+                ).raise_for_status(),
                 self.retries,
                 self.retry_delay,
                 niquests.RequestException,
-            ).raise_for_status()
+                retry_transient_request,
+            )
 
             logger.debug(f"{self.log(username)} Requested data for user")
             logger.trace(f"{self.log(username)} {res=}")
@@ -141,11 +145,12 @@ class BetterTwitFix:
                     timeout=5,
                     allow_redirects=False,
                     retries=0,
-                ),
+                ).raise_for_status(),
                 self.retries,
                 self.retry_delay,
                 niquests.RequestException,
-            ).raise_for_status()
+                retry_transient_request,
+            )
 
             logger.debug(f"{self.log(username, post_id)} Requested post data")
             logger.trace(f"{self.log(username, post_id)} {res=}")

@@ -6,7 +6,7 @@ import niquests
 from niquests import Response
 
 from .fxembed import FxEmbed
-from .retry import retry_request
+from .retry import retry_request, retry_transient_request
 from .service import ServiceCircuitBreaker
 
 
@@ -15,6 +15,8 @@ class CarryFeed(FxEmbed):
 
     service_name: str = "CarryFeed"
     api_url: str = "https://carryfeed.com/api"
+    supports_profile_lookup: bool = False
+    supports_timeline_parameters: bool = False
 
     def __init__(self: Self, circuit_breaker: ServiceCircuitBreaker) -> None:
         """Initialize the data source with shared service health state."""
@@ -30,8 +32,9 @@ class CarryFeed(FxEmbed):
                 timeout=5,
                 allow_redirects=False,
                 retries=0,
-            ),
+            ).raise_for_status(),
             self.retries,
             self.retry_delay,
             niquests.RequestException,
-        ).raise_for_status()
+            retry_transient_request,
+        )
