@@ -16,6 +16,7 @@ from loguru_discord import DiscordSink, Intercept
 
 from core.archive import InternetArchiveSession
 from core.bettertwitfix import BetterTwitFix
+from core.carryfeed import CarryFeed
 from core.config import XConfig, load_x_configs
 from core.fxembed import FxEmbed
 from core.service import ServiceCircuitBreaker
@@ -115,6 +116,7 @@ def start() -> None:
 
     for variable, service_name, factory in (
         ("DISABLE_BETTERTWITFIX", "BetterTwitFix", BetterTwitFix),
+        ("DISABLE_CARRYFEED", "CarryFeed", CarryFeed),
         ("DISABLE_FXEMBED", "FxEmbed", FxEmbed),
     ):
         if env.bool(variable, False):
