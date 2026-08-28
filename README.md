@@ -112,7 +112,7 @@ proxy = true
 | `exclude_keyword` | Skip posts containing any listed substring; case-insensitive | String array | No | `[]` |
 | `archive` | Save posts selected for notification to the Internet Archive Wayback Machine | Boolean | No | `false` |
 | `proxy` | Replace navigational X links with proxy links; excludes media | Boolean | No | `false` |
-| `proxy_host` | Hostname used for proxy links and Internet Archive capture targets | String | No | `"twstalker.com"` |
-| `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"TwStalker"` |
+| `proxy_host` | Hostname used for proxy links and Internet Archive capture targets | String | No | `"nitter.app"` |
+| `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"Nitter"` |
 
 Set `archive = true` on an X instance to save each post selected for notification to the Internet Archive Wayback Machine. Internet Archive rejects direct `x.com` captures, so Bluebird archives the corresponding URL on `proxy_host` even when `proxy = false`. Archive failures are logged without blocking the Discord notification.

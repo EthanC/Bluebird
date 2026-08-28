@@ -175,7 +175,7 @@ class XInstance:
         self.exclude_keyword: tuple[str, ...] = ()
         self.proxy: bool = False
         self.proxy_name: str = "X"
-        self.archive_base_url: str = "https://twstalker.com/"
+        self.archive_base_url: str = "https://nitter.app/"
 
     def log(self: Self, username: str | None = None, post_id: str | None = None) -> str:
         """Craft the head of a log message given an instance and username."""

@@ -6,8 +6,8 @@ discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX"
 require_media = true
 archive = true
 proxy = true
-proxy_host = "twstalker.com"
-proxy_name = "TwStalker"
+proxy_host = "nitter.app"
+proxy_name = "Nitter"
 
 [[instances.x]]
 usernames = ["CallofDuty"]

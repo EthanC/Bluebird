@@ -31,8 +31,8 @@ class XConfig:
     exclude_keyword: tuple[str, ...] = ()
     archive: bool = False
     proxy: bool = False
-    proxy_host: str = "twstalker.com"
-    proxy_name: str = "TwStalker"
+    proxy_host: str = "nitter.app"
+    proxy_name: str = "Nitter"
 
 
 def load_x_configs(path: Path) -> tuple[XConfig, ...]:
@@ -183,9 +183,9 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         ),
         archive=_boolean(value, "archive", label),
         proxy=_boolean(value, "proxy", label),
-        proxy_host=_proxy_host(value.get("proxy_host", "twstalker.com"), label),
+        proxy_host=_proxy_host(value.get("proxy_host", "nitter.app"), label),
         proxy_name=_nonempty_string(
-            value.get("proxy_name", "TwStalker"), "proxy_name", label
+            value.get("proxy_name", "Nitter"), "proxy_name", label
         ),
     )
 
