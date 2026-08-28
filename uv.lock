@@ -4,14 +4,14 @@ requires-python = ">=3.14"
 
 [[package]]
 name = "archivist-py"
-version = "1.0.0"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "niquests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/76/9f4639e0bd4f405661e5b62d1381f0ffb382c1faa41b27c4015d65ca5d7a/archivist_py-1.0.0.tar.gz", hash = "sha256:b37cf3191b9ad6ec32588a771d0145a682d7aac7355f41149995dfaa4e2b0b44", size = 37433, upload-time = "2026-08-28T05:44:57.697Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/20/4c8819d1cd1f7b527864314560e4a80776fdc4a1aec7ab1529e054935037/archivist_py-1.0.1.tar.gz", hash = "sha256:e28c2f292c914d1c40ca9b789c0a12a2b8cc7d719ea039950362f7ed06e83050", size = 38411, upload-time = "2026-08-28T18:17:46.446Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/a6/b0dd493c304d5b96ab68edda1c9e4ad9783e53b4baceb57873683685fe9d/archivist_py-1.0.0-py3-none-any.whl", hash = "sha256:683a33d65576758ca45c7081645acd2761e90367ee0c1d145d924a2f7221634d", size = 49793, upload-time = "2026-08-28T05:44:56.633Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/28/3eb8deb9bb0b419651b51473efe8098c744dce30d9295e5ff668d4575f45/archivist_py-1.0.1-py3-none-any.whl", hash = "sha256:23bf412ea97962af837f8428ed3ebd4f6f799d9c7672a2a0d5e2ac3bf8b3a7d6", size = 50948, upload-time = "2026-08-28T18:17:45.392Z" },
 ]
 
 [[package]]
@@ -35,7 +35,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "archivist-py", specifier = ">=1.0.0" },
+    { name = "archivist-py", specifier = ">=1.0.1" },
     { name = "discord-clyde", specifier = ">=1.0.0" },
     { name = "environs", specifier = ">=15.1.0" },
     { name = "loguru", specifier = ">=0.7.3" },

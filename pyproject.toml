@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 authors = [{ name = "EthanC", email = "16727756+EthanC@users.noreply.github.com" }]
 dependencies = [
-  "archivist-py>=1.0.0",
+  "archivist-py>=1.0.1",
   "discord-clyde>=1.0.0",
   "environs>=15.1.0",
   "loguru>=0.7.3",
