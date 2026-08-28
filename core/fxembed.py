@@ -121,18 +121,7 @@ class FxEmbed:
     def _fetch_post(self: Self, username: str, post_id: str) -> XPost:
         """Fetch one post while admitted by the circuit breaker."""
         try:
-            res: Response = retry_request(
-                lambda: niquests.get(
-                    f"{self.api_url}/status/{post_id}",
-                    headers={"User-Agent": self.user_agent},
-                    timeout=5,
-                    allow_redirects=False,
-                    retries=0,
-                ),
-                self.retries,
-                self.retry_delay,
-                niquests.RequestException,
-            ).raise_for_status()
+            res: Response = self._request_post(username, post_id)
 
             logger.debug(f"{self.log(username, post_id)} Requested post data")
             logger.trace(f"{self.log(username, post_id)} {res=}")
@@ -165,6 +154,21 @@ class FxEmbed:
         logger.trace(f"{self.log(username, post_id)} {post=}")
 
         return post
+
+    def _request_post(self: Self, username: str, post_id: str) -> Response:
+        """Request one post from FxEmbed."""
+        return retry_request(
+            lambda: niquests.get(
+                f"{self.api_url}/status/{post_id}",
+                headers={"User-Agent": self.user_agent},
+                timeout=5,
+                allow_redirects=False,
+                retries=0,
+            ),
+            self.retries,
+            self.retry_delay,
+            niquests.RequestException,
+        ).raise_for_status()
 
     @staticmethod
     def _is_not_found(error: Exception) -> bool:

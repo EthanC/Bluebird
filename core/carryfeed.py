@@ -2,13 +2,16 @@
 
 from typing import Self
 
+import niquests
+from niquests import Response
+
 from .fxembed import FxEmbed
+from .retry import retry_request
 from .service import ServiceCircuitBreaker
-from .x import XPost
 
 
 class CarryFeed(FxEmbed):
-    """Fetch and normalize X profile feeds with CarryFeed."""
+    """Fetch and normalize X posts with CarryFeed."""
 
     service_name: str = "CarryFeed"
     api_url: str = "https://carryfeed.com/api"
@@ -17,6 +20,18 @@ class CarryFeed(FxEmbed):
         """Initialize the data source with shared service health state."""
         super().__init__(circuit_breaker)
 
-    def fetch_post(self: Self, username: str, post_id: str) -> XPost | None:
-        """Return no post because CarryFeed does not expose a single-post route."""
-        return None
+    def _request_post(self: Self, username: str, post_id: str) -> Response:
+        """Resolve one X post with CarryFeed."""
+        return retry_request(
+            lambda: niquests.get(
+                f"{self.api_url}/resolve",
+                params={"url": f"https://x.com/{username}/status/{post_id}"},
+                headers={"User-Agent": self.user_agent},
+                timeout=5,
+                allow_redirects=False,
+                retries=0,
+            ),
+            self.retries,
+            self.retry_delay,
+            niquests.RequestException,
+        ).raise_for_status()
