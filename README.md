@@ -75,9 +75,8 @@ Bluebird reads environment variables from the process and an optional `.env` fil
 | `SERVICE_DISABLE_ERROR_THRESHOLD` | Consecutive disable periods before Bluebird logs an error for a prolonged outage; a successful recovery resets the count | Integer | No | `24` |
 | `DISABLE_BETTERTWITFIX` | Disable the BetterTwitFix data source for every X instance | Boolean | No | `false` |
 | `DISABLE_FXEMBED` | Disable the FxEmbed data source for every X instance | Boolean | No | `false` |
-| `DISABLE_TWITTERWEBVIEWER` | Disable the TwitterWebViewer data source for every X instance | Boolean | No | `false` |
 
-Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if all three data sources are disabled.
+Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if both data sources are disabled.
 
 When Internet Archive credentials are present, Bluebird requests a screenshot and adds captures to the account's My Web Archive. Without credentials, archive-enabled instances submit anonymous captures, which cannot include screenshots or My Web Archive saves.
 

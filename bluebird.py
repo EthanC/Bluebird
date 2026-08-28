@@ -20,7 +20,6 @@ from core.config import XConfig, load_x_configs
 from core.fxembed import FxEmbed
 from core.service import ServiceCircuitBreaker
 from core.state import StateStore
-from core.twitterwebviewer import TwitterWebViewer
 from core.x import XDataSource, XInstance
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -117,7 +116,6 @@ def start() -> None:
     for variable, service_name, factory in (
         ("DISABLE_BETTERTWITFIX", "BetterTwitFix", BetterTwitFix),
         ("DISABLE_FXEMBED", "FxEmbed", FxEmbed),
-        ("DISABLE_TWITTERWEBVIEWER", "TwitterWebViewer", TwitterWebViewer),
     ):
         if env.bool(variable, False):
             logger.warning(
