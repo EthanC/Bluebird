@@ -27,7 +27,10 @@ class FxEmbed:
     retries: int = 3
     retry_delay: float = 5.0
     supports_profile_lookup: bool = True
-    supports_timeline_parameters: bool = True
+    timeline_page_size: int = 100
+    include_timeline_replies: bool = True
+    supports_timeline_pagination: bool = True
+    supports_timeline_since: bool = True
 
     def __init__(self: Self, circuit_breaker: ServiceCircuitBreaker) -> None:
         """Initialize the data source with shared service health state."""
@@ -136,7 +139,7 @@ class FxEmbed:
                 )
 
                 if (
-                    not self.supports_timeline_parameters
+                    not self.supports_timeline_pagination
                     or cursor is None
                     or reached_cursor
                     or not bottom_cursor
@@ -179,16 +182,16 @@ class FxEmbed:
         self: Self, username: str, cursor: XCursor | None, page_cursor: str | None
     ) -> Response:
         """Request one profile timeline page from FxEmbed."""
-        params: dict[str, str] | None = None
+        params: dict[str, str] = {"count": str(self.timeline_page_size)}
 
-        if self.supports_timeline_parameters:
-            params = {"count": "100", "with_replies": "1"}
+        if self.include_timeline_replies:
+            params["with_replies"] = "true"
 
-            if page_cursor:
-                params["cursor"] = page_cursor
-            elif cursor:
-                # Include the prior second so same-second posts can be compared by ID.
-                params["since"] = str(max(cursor.created_at - 1, 0))
+        if page_cursor and self.supports_timeline_pagination:
+            params["cursor"] = page_cursor
+        elif cursor and self.supports_timeline_since:
+            # Include the prior second so same-second posts can be compared by ID.
+            params["since"] = str(max(cursor.created_at - 1, 0))
 
         return retry_request(
             lambda: niquests.get(
