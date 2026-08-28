@@ -117,6 +117,13 @@ class FxEmbed:
                             continue
 
                         post: XPost = self._normalize_post(post_data)
+
+                        if post.username.casefold() != username.casefold():
+                            logger.debug(
+                                f"{self.log(feed_username or username, post.post_id)} Skipped conversation context"
+                            )
+                            continue
+
                         posts_by_id.setdefault(post.post_id, post)
 
                         if cursor and not XCursor(
