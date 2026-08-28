@@ -222,3 +222,4 @@ __marimo__/
 # Bluebird
 data/
 config.toml
+state.toml
