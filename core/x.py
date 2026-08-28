@@ -332,8 +332,8 @@ class XInstance:
                 f"{self.log(username, post_id)} Discovered new post {post.url}"
             )
 
-            self.archive_post(post)
-            self.notify(post)
+            archive_url: str | None = self.archive_post(post)
+            self.notify(post, archive_url)
             self.state.set(self.state_key, username, post_cursor)
             cursor = post_cursor
 
@@ -456,8 +456,8 @@ class XInstance:
 
         return fallback
 
-    def archive_post(self: Self, post: XPost) -> None:
-        """Archive a post when Internet Archive capture is enabled."""
+    def archive_post(self: Self, post: XPost) -> str | None:
+        """Archive a post and return its Internet Archive URL when available."""
         if not self.archive_client:
             return
 
@@ -472,11 +472,14 @@ class XInstance:
 
             return
 
+        archive_url: str = capture.archive_url()
         logger.success(
-            f"{self.log(post.username, post.post_id)} Archived post {capture.archive_url()}"
+            f"{self.log(post.username, post.post_id)} Archived post {archive_url}"
         )
 
-    def notify(self: Self, post: XPost) -> None:
+        return archive_url
+
+    def notify(self: Self, post: XPost, archive_url: str | None = None) -> None:
         """Send a Discord Webhook notification for the provided X post."""
         post_containers: list[Container] = []
         original_post: XPost | None = None
@@ -526,7 +529,7 @@ class XInstance:
         container.add_component(Seperator(divider=True, spacing=SeperatorSpacing.SMALL))
         container.add_component(self.build_post_footer(post))
 
-        outbound: ActionRow = self.build_post_outbound(post, original_post)
+        outbound: ActionRow = self.build_post_outbound(post, original_post, archive_url)
 
         logger.debug(f"{self.log(post.username, post.post_id)} Built Webhook for post")
 
@@ -702,7 +705,10 @@ class XInstance:
         return footer
 
     def build_post_outbound(
-        self: Self, post: XPost, original_post: XPost | None = None
+        self: Self,
+        post: XPost,
+        original_post: XPost | None = None,
+        archive_url: str | None = None,
     ) -> ActionRow:
         """Build actions for the provided X post."""
         post_url: str = (
@@ -724,6 +730,11 @@ class XInstance:
                     label=f"View Original Post on {self.proxy_name}",
                     url=f"{self.base_url}{original_username}/status/{original.post_id}",
                 )
+            )
+
+        if archive_url:
+            components.append(
+                LinkButton(label="View Post on Internet Archive", url=archive_url)
             )
 
         components.append(
