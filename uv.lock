@@ -3,10 +3,23 @@ revision = 3
 requires-python = ">=3.14"
 
 [[package]]
+name = "archivist-py"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "niquests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/76/9f4639e0bd4f405661e5b62d1381f0ffb382c1faa41b27c4015d65ca5d7a/archivist_py-1.0.0.tar.gz", hash = "sha256:b37cf3191b9ad6ec32588a771d0145a682d7aac7355f41149995dfaa4e2b0b44", size = 37433, upload-time = "2026-08-28T05:44:57.697Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/a6/b0dd493c304d5b96ab68edda1c9e4ad9783e53b4baceb57873683685fe9d/archivist_py-1.0.0-py3-none-any.whl", hash = "sha256:683a33d65576758ca45c7081645acd2761e90367ee0c1d145d924a2f7221634d", size = 49793, upload-time = "2026-08-28T05:44:56.633Z" },
+]
+
+[[package]]
 name = "bluebird"
 version = "3.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "archivist-py" },
     { name = "curl-cffi" },
     { name = "discord-clyde" },
     { name = "environs" },
@@ -23,6 +36,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "archivist-py", specifier = ">=1.0.0" },
     { name = "curl-cffi", specifier = ">=0.16.2" },
     { name = "discord-clyde", specifier = ">=1.0.0" },
     { name = "environs", specifier = ">=15.1.0" },

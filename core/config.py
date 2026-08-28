@@ -28,6 +28,7 @@ class XConfig:
     exclude_reply: bool = False
     exclude_repost: bool = False
     exclude_keyword: tuple[str, ...] = ()
+    archive: bool = False
     proxy: bool = False
     proxy_host: str = "twstalker.com"
     proxy_name: str = "TwStalker"
@@ -89,6 +90,7 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         "exclude_reply",
         "exclude_repost",
         "exclude_keyword",
+        "archive",
         "proxy",
         "proxy_host",
         "proxy_name",
@@ -154,6 +156,7 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
         exclude_keyword=_string_list(
             value.get("exclude_keyword"), f"{label}.exclude_keyword"
         ),
+        archive=_boolean(value, "archive", label),
         proxy=_boolean(value, "proxy", label),
         proxy_host=_proxy_host(value.get("proxy_host", "twstalker.com"), label),
         proxy_name=_nonempty_string(

@@ -9,6 +9,7 @@ from queue import Empty, Queue
 from sys import stdout
 from threading import Event, Thread
 
+from archivist import InternetArchiveAccount
 from environs import env
 from loguru import logger
 from loguru_discord import DiscordSink, Intercept
@@ -67,6 +68,28 @@ def start() -> None:
         )
 
         logger.info("Enabled logging to Discord webhook")
+
+    try:
+        archive_username: str | None = env.str("INTERNET_ARCHIVE_USERNAME", None)
+        archive_password: str | None = env.str("INTERNET_ARCHIVE_PASSWORD", None)
+
+        if (archive_username is None) != (archive_password is None):
+            raise ValueError(
+                "INTERNET_ARCHIVE_USERNAME and INTERNET_ARCHIVE_PASSWORD "
+                "must be set together"
+            )
+
+        archive_account: InternetArchiveAccount | None = (
+            InternetArchiveAccount(archive_username, archive_password)
+            if archive_username is not None and archive_password is not None
+            else None
+        )
+    except Exception as e:
+        logger.opt(exception=e).critical(
+            "Failed to initialize Internet Archive credentials"
+        )
+
+        raise SystemExit(1) from e
 
     try:
         failure_threshold: int = env.int("SERVICE_FAILURE_THRESHOLD", 10)
@@ -130,7 +153,9 @@ def start() -> None:
     threads: list[Thread] = []
 
     for index, config in enumerate(configs):
-        instance = XInstance([factory() for factory in source_factories], state)
+        instance = XInstance(
+            [factory() for factory in source_factories], state, archive_account
+        )
         thread = Thread(
             target=run_instance,
             args=(instance, config, index, stop, failures),

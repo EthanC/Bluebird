@@ -8,6 +8,12 @@ from threading import Event
 from typing import Protocol, Self, Sequence
 from urllib.parse import urlsplit
 
+from archivist import (
+    ArchivistError,
+    InternetArchiveAccount,
+    InternetArchiveClient,
+    InternetArchiveSaveOptions,
+)
 from clyde import AllowedMentions, Webhook
 from clyde.components import (
     ActionRow,
@@ -147,10 +153,22 @@ class XInstance:
 
     base_url: str = "https://x.com/"
 
-    def __init__(self: Self, sources: Sequence[XDataSource], state: StateStore) -> None:
+    def __init__(
+        self: Self,
+        sources: Sequence[XDataSource],
+        state: StateStore,
+        archive_account: InternetArchiveAccount | None = None,
+    ) -> None:
         """Initialize an X instance with its post data sources."""
         self.sources: tuple[XDataSource, ...] = tuple(sources)
         self.state: StateStore = state
+        self.archive_account: InternetArchiveAccount | None = archive_account
+        self.archive_client: InternetArchiveClient | None = None
+        self.archive_options: InternetArchiveSaveOptions | None = (
+            InternetArchiveSaveOptions(capture_screenshot=True, save_to_archive=True)
+            if archive_account
+            else None
+        )
         self.index: int = 0
         self.state_key: str = ""
         self.usernames: tuple[str, ...] = ()
@@ -162,6 +180,7 @@ class XInstance:
         self.exclude_keyword: tuple[str, ...] = ()
         self.proxy: bool = False
         self.proxy_name: str = "X"
+        self.archive_base_url: str = "https://twstalker.com/"
 
     def log(self: Self, username: str | None = None, post_id: str | None = None) -> str:
         """Craft the head of a log message given an instance and username."""
@@ -193,6 +212,7 @@ class XInstance:
         self.base_url = (
             f"https://{config.proxy_host}/" if config.proxy else "https://x.com/"
         )
+        self.archive_base_url = f"https://{config.proxy_host}/"
 
         for source in self.sources:
             source.retries = config.retries
@@ -201,36 +221,52 @@ class XInstance:
         logger.info(f"{self.log()} Loaded instance configuration")
 
         cooldown_configured: float = config.cooldown
+        self.archive_client = (
+            InternetArchiveClient(account=self.archive_account)
+            if config.archive
+            else None
+        )
 
-        while not stop.is_set():
-            cooldown: float = cooldown_configured
+        if self.archive_client:
+            mode: str = "authenticated" if self.archive_account else "anonymous"
+            logger.info(f"{self.log()} Enabled {mode} Internet Archive captures")
 
-            for index, username in enumerate(self.usernames):
-                if stop.is_set():
-                    return
+        try:
+            while not stop.is_set():
+                cooldown: float = cooldown_configured
 
-                if environ.get("DEBUG_STATE"):
-                    debug_created_at: int = env.int("DEBUG_STATE")
-                    self.state.set(
-                        self.state_key,
-                        username,
-                        XCursor(debug_created_at, "0"),
-                        force=True,
-                    )
-
-                cooldown_new: float | None = self.watch_user(username)
-
-                if cooldown_new and cooldown_new > cooldown:
-                    cooldown = cooldown_new
-
-                if (index + 1) < len(self.usernames):
-                    # Wait between watching users to avoid API load
-                    if stop.wait(random.uniform(3.0, 10.0)):
+                for index, username in enumerate(self.usernames):
+                    if stop.is_set():
                         return
 
-            logger.info(f"{self.log()} Instance is sleeping for {int(cooldown):,}s...")
+                    if environ.get("DEBUG_STATE"):
+                        debug_created_at: int = env.int("DEBUG_STATE")
+                        self.state.set(
+                            self.state_key,
+                            username,
+                            XCursor(debug_created_at, "0"),
+                            force=True,
+                        )
 
-            stop.wait(cooldown)
+                    cooldown_new: float | None = self.watch_user(username)
+
+                    if cooldown_new and cooldown_new > cooldown:
+                        cooldown = cooldown_new
+
+                    if (index + 1) < len(self.usernames):
+                        # Wait between watching users to avoid API load
+                        if stop.wait(random.uniform(3.0, 10.0)):
+                            return
+
+                logger.info(
+                    f"{self.log()} Instance is sleeping for {int(cooldown):,}s..."
+                )
+
+                stop.wait(cooldown)
+        finally:
+            if self.archive_client:
+                self.archive_client.close()
+                self.archive_client = None
 
     def watch_user(self: Self, username: str) -> float | None:
         """Process user data and trigger notifications."""
@@ -292,6 +328,7 @@ class XInstance:
                 f"{self.log(username, post_id)} Discovered new post {post.url}"
             )
 
+            self.archive_post(post)
             self.notify(post)
             self.state.set(self.state_key, username, post_cursor)
             cursor = post_cursor
@@ -414,6 +451,26 @@ class XInstance:
                 )
 
         return fallback
+
+    def archive_post(self: Self, post: XPost) -> None:
+        """Archive a post when Internet Archive capture is enabled."""
+        if not self.archive_client:
+            return
+
+        archive_target: str = Format.x_url(post.url, self.archive_base_url)
+
+        try:
+            capture = self.archive_client.save(archive_target, self.archive_options)
+        except ArchivistError as error:
+            logger.opt(exception=error).error(
+                f"{self.log(post.username, post.post_id)} Internet Archive capture failed"
+            )
+
+            return
+
+        logger.success(
+            f"{self.log(post.username, post.post_id)} Archived post {capture.archive_url()}"
+        )
 
     def notify(self: Self, post: XPost) -> None:
         """Send a Discord Webhook notification for the provided X post."""

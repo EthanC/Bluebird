@@ -15,6 +15,7 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 - Track several usernames and webhooks from one process.
 - Filter notifications by media, keywords, replies, and reposts.
+- Optionally archive notified posts with the Internet Archive Wayback Machine.
 - Optionally route X links through a configurable proxy frontend.
 - Render posts with Discord components, media galleries, and links back to X.
 - Run from the published Docker container or directly with Python and `uv`.
@@ -48,6 +49,10 @@ docker compose up -d
 
 Each `DISABLE_*` variable is optional and defaults to `false`. Setting one to `true` disables that data source for every X instance. Bluebird logs a critical error and exits if all three data sources are disabled.
 
+Set `archive = true` on an X instance to save each post selected for notification to the Internet Archive Wayback Machine. Internet Archive rejects direct `x.com` captures, so Bluebird archives the corresponding URL on `proxy_host` even when `proxy = false`. Archive failures are logged without blocking the Discord notification.
+
+`INTERNET_ARCHIVE_USERNAME` and `INTERNET_ARCHIVE_PASSWORD` are optional and must be set together. When present, Bluebird requests a screenshot and adds each capture to the account's My Web Archive. Without credentials, archive-enabled instances submit anonymous captures; Internet Archive does not allow screenshots or My Web Archive saves for anonymous requests.
+
 ## Python
 
 Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
@@ -56,7 +61,7 @@ Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
 uv sync
 ```
 
-Copy `config.example.toml` to `config.toml` and edit it. To configure logging or disable a data source, also copy `.env.example` to `.env`. All environment variables are optional.
+Copy `config.example.toml` to `config.toml` and edit it. To configure logging, Internet Archive credentials, or data-source availability, also copy `.env.example` to `.env`. All environment variables are optional.
 
 Run Bluebird from the repository root:
 
@@ -79,6 +84,7 @@ discord_webhook_url = "https://discord.com/api/webhooks/XXXXXXXX/XXXXXXXX"
 require_keyword = ["trailer", "announcement"]
 exclude_reply = true
 cooldown = 900
+archive = true
 proxy = true
 ```
 
@@ -94,6 +100,7 @@ proxy = true
 | `exclude_reply` | Skip replies | Boolean | No | `false` |
 | `exclude_repost` | Skip reposts | Boolean | No | `false` |
 | `exclude_keyword` | Skip posts containing any listed substring; case-insensitive | String array | No | `[]` |
+| `archive` | Save posts selected for notification to the Internet Archive Wayback Machine | Boolean | No | `false` |
 | `proxy` | Replace navigational X links with proxy links; excludes media | Boolean | No | `false` |
-| `proxy_host` | Hostname used for proxy links; requires `proxy = true` | String | No | `"twstalker.com"` |
+| `proxy_host` | Hostname used for proxy links and Internet Archive capture targets | String | No | `"twstalker.com"` |
 | `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"TwStalker"` |
