@@ -41,18 +41,6 @@ Start the container:
 docker compose up -d
 ```
 
-`LOG_DISCORD_WEBHOOK_URL` is optional. It sends Bluebird's own warning and error logs to a separate Discord webhook; post notifications use the webhooks in `config.toml`.
-
-`SERVICE_FAILURE_THRESHOLD` and `SERVICE_DISABLE_SECONDS` are optional and default to `10` consecutive failures and `3600` seconds. The rules apply to every data source, but failures are tracked independently for each service across all X instances. A disabled service permits one recovery request after the configured duration; success restores it, while failure disables it again. An exhausted request, including its configured retries, counts as one failure. Confirmed missing resources do not count as failures.
-
-`SERVICE_DISABLE_ERROR_THRESHOLD` is optional and defaults to `24`. Bluebird emits an error after a service reaches that many consecutive disable periods, allowing `LOG_DISCORD_WEBHOOK_URL` to report a prolonged outage. The initial disable and each failed recovery probe count as one disable period. A successful recovery resets the count.
-
-Each `DISABLE_*` variable is optional and defaults to `false`. Setting one to `true` disables that data source for every X instance. Bluebird logs a critical error and exits if all three data sources are disabled.
-
-Set `archive = true` on an X instance to save each post selected for notification to the Internet Archive Wayback Machine. Internet Archive rejects direct `x.com` captures, so Bluebird archives the corresponding URL on `proxy_host` even when `proxy = false`. Archive failures are logged without blocking the Discord notification.
-
-`INTERNET_ARCHIVE_USERNAME` and `INTERNET_ARCHIVE_PASSWORD` are optional and must be set together. When present, Bluebird requests a screenshot and adds each capture to the account's My Web Archive. Without credentials, archive-enabled instances submit anonymous captures; Internet Archive does not allow screenshots or My Web Archive saves for anonymous requests.
-
 ## Python
 
 Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
@@ -70,6 +58,28 @@ uv run bluebird.py
 ```
 
 Bluebird creates `data/state.toml` on startup. The first successful profile check records the newest post as the starting cursor; notifications begin with posts published afterward.
+
+## Environment Variables
+
+Bluebird reads environment variables from the process and an optional `.env` file in the repository root. All environment variables are optional.
+
+| Variable | Description | Type | Required | Default |
+| --- | --- | --- | :---: | --- |
+| `LOG_LEVEL` | Minimum level written to the console | String | No | `"DEBUG"` |
+| `LOG_DISCORD_WEBHOOK_URL` | Discord webhook that receives Bluebird's own logs; post notifications use the webhooks in `config.toml` | URL | No | None |
+| `LOG_DISCORD_WEBHOOK_LEVEL` | Minimum level sent to `LOG_DISCORD_WEBHOOK_URL` | String | No | `"WARNING"` |
+| `INTERNET_ARCHIVE_USERNAME` | Internet Archive account username; must be set with `INTERNET_ARCHIVE_PASSWORD` | String | Conditional | None |
+| `INTERNET_ARCHIVE_PASSWORD` | Internet Archive account password; must be set with `INTERNET_ARCHIVE_USERNAME` | String | Conditional | None |
+| `SERVICE_FAILURE_THRESHOLD` | Consecutive failed requests before a data source is temporarily disabled; retries are counted as one request and confirmed missing resources are excluded | Integer | No | `10` |
+| `SERVICE_DISABLE_SECONDS` | Seconds a failed data source remains disabled before Bluebird makes one recovery request | Number | No | `3600` |
+| `SERVICE_DISABLE_ERROR_THRESHOLD` | Consecutive disable periods before Bluebird logs an error for a prolonged outage; a successful recovery resets the count | Integer | No | `24` |
+| `DISABLE_BETTERTWITFIX` | Disable the BetterTwitFix data source for every X instance | Boolean | No | `false` |
+| `DISABLE_FXEMBED` | Disable the FxEmbed data source for every X instance | Boolean | No | `false` |
+| `DISABLE_TWITTERWEBVIEWER` | Disable the TwitterWebViewer data source for every X instance | Boolean | No | `false` |
+
+Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if all three data sources are disabled.
+
+When Internet Archive credentials are present, Bluebird requests a screenshot and adds captures to the account's My Web Archive. Without credentials, archive-enabled instances submit anonymous captures, which cannot include screenshots or My Web Archive saves.
 
 ## Configuration
 
@@ -105,3 +115,5 @@ proxy = true
 | `proxy` | Replace navigational X links with proxy links; excludes media | Boolean | No | `false` |
 | `proxy_host` | Hostname used for proxy links and Internet Archive capture targets | String | No | `"twstalker.com"` |
 | `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"TwStalker"` |
+
+Set `archive = true` on an X instance to save each post selected for notification to the Internet Archive Wayback Machine. Internet Archive rejects direct `x.com` captures, so Bluebird archives the corresponding URL on `proxy_host` even when `proxy = false`. Archive failures are logged without blocking the Discord notification.
