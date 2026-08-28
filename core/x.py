@@ -172,7 +172,7 @@ class XInstance:
         self.index: int = 0
         self.state_key: str = ""
         self.usernames: tuple[str, ...] = ()
-        self.webhook_url: str = ""
+        self.webhook_urls: tuple[str, ...] = ()
         self.require_media: bool = False
         self.require_keyword: tuple[str, ...] = ()
         self.exclude_reply: bool = False
@@ -201,7 +201,11 @@ class XInstance:
         self.index = index
         self.state_key = config.state_key
         self.usernames = config.usernames
-        self.webhook_url = config.discord_webhook_url
+        self.webhook_urls = (
+            (config.discord_webhook_url,)
+            if config.discord_webhook_url is not None
+            else config.discord_webhook_urls
+        )
         self.require_media = config.require_media
         self.require_keyword = config.require_keyword
         self.exclude_reply = config.exclude_reply
@@ -474,9 +478,6 @@ class XInstance:
 
     def notify(self: Self, post: XPost) -> None:
         """Send a Discord Webhook notification for the provided X post."""
-        webhook: Webhook = Webhook(
-            url=self.webhook_url, allowed_mentions=AllowedMentions(parse=[])
-        )
         post_containers: list[Container] = []
         original_post: XPost | None = None
 
@@ -525,15 +526,21 @@ class XInstance:
         container.add_component(Seperator(divider=True, spacing=SeperatorSpacing.SMALL))
         container.add_component(self.build_post_footer(post))
 
-        webhook.add_component(container)
-        webhook.add_component(self.build_post_outbound(post, original_post))
+        outbound: ActionRow = self.build_post_outbound(post, original_post)
 
         logger.debug(f"{self.log(post.username, post.post_id)} Built Webhook for post")
 
-        try:
-            webhook.execute()
-        except Exception:
-            raise RuntimeError("Discord webhook delivery failed") from None
+        for webhook_url in self.webhook_urls:
+            webhook = Webhook(
+                url=webhook_url, allowed_mentions=AllowedMentions(parse=[])
+            )
+            webhook.add_component(container)
+            webhook.add_component(outbound)
+
+            try:
+                webhook.execute()
+            except Exception:
+                raise RuntimeError("Discord webhook delivery failed") from None
 
     def build_post(
         self: Self, post: XPost, mini: bool = False, *, include_footer: bool = True

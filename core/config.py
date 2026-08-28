@@ -18,7 +18,8 @@ class XConfig:
     """Contain one validated X monitoring configuration."""
 
     usernames: tuple[str, ...]
-    discord_webhook_url: str
+    discord_webhook_url: str | None
+    discord_webhook_urls: tuple[str, ...]
     state_key: str
     cooldown: float = 60.0
     retries: int = 3
@@ -82,6 +83,7 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
     allowed: set[str] = {
         "usernames",
         "discord_webhook_url",
+        "discord_webhook_urls",
         "cooldown",
         "retries",
         "retry_delay",
@@ -110,10 +112,32 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
                 f"{label}.usernames contains invalid username {username!r}"
             )
 
+    has_webhook_url: bool = "discord_webhook_url" in value
+    has_webhook_urls: bool = "discord_webhook_urls" in value
+
+    if has_webhook_url == has_webhook_urls:
+        raise ValueError(
+            f"{label} must define exactly one of discord_webhook_url or "
+            "discord_webhook_urls"
+        )
+
     webhook_url: Any = value.get("discord_webhook_url")
 
-    if not isinstance(webhook_url, str) or not _valid_webhook_url(webhook_url):
+    if has_webhook_url and (
+        not isinstance(webhook_url, str) or not _valid_webhook_url(webhook_url)
+    ):
         raise ValueError(f"{label}.discord_webhook_url must be a Discord webhook URL")
+
+    webhook_urls: tuple[str, ...] = _string_list(
+        value.get("discord_webhook_urls"),
+        f"{label}.discord_webhook_urls",
+        required=has_webhook_urls,
+    )
+
+    if any(not _valid_webhook_url(url) for url in webhook_urls):
+        raise ValueError(
+            f"{label}.discord_webhook_urls must contain only Discord webhook URLs"
+        )
 
     cooldown: Any = value.get("cooldown", 60.0)
 
@@ -143,6 +167,7 @@ def _parse_x_config(value: Any, index: int) -> XConfig:
     config = XConfig(
         usernames=usernames,
         discord_webhook_url=webhook_url,
+        discord_webhook_urls=webhook_urls,
         state_key="",
         cooldown=float(cooldown),
         retries=retries,
@@ -259,9 +284,21 @@ def _valid_webhook_url(url: str) -> bool:
 
 def _state_key(config: XConfig) -> str:
     """Create a stable non-secret identity for an X instance."""
-    webhook_id: str = urlsplit(config.discord_webhook_url).path.split("/")[3]
+    webhook_ids: tuple[str, ...] = tuple(
+        sorted(
+            urlsplit(url).path.split("/")[3]
+            for url in (
+                (config.discord_webhook_url,)
+                if config.discord_webhook_url is not None
+                else config.discord_webhook_urls
+            )
+        )
+    )
+    webhook_identity: str | tuple[str, ...] = (
+        webhook_ids[0] if len(webhook_ids) == 1 else webhook_ids
+    )
     fields: tuple[object, ...] = (
-        webhook_id,
+        webhook_identity,
         tuple(sorted(username.casefold() for username in config.usernames)),
         config.require_media,
         tuple(sorted(keyword.casefold() for keyword in config.require_keyword)),
@@ -274,7 +311,7 @@ def _state_key(config: XConfig) -> str:
     )
     digest: str = sha256(repr(fields).encode()).hexdigest()[:16]
 
-    return f"{webhook_id}-{digest}"
+    return f"{webhook_ids[0]}-{digest}"
 
 
 def _keys(keys: set[str]) -> str:

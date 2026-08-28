@@ -11,7 +11,10 @@ proxy_name = "TwStalker"
 
 [[instances.x]]
 usernames = ["CallofDuty"]
-discord_webhook_url = "https://discord.com/api/webhooks/ZZZZZZZZ/ZZZZZZZZ"
+discord_webhook_urls = [
+  "https://discord.com/api/webhooks/YYYYYYYY/YYYYYYYY",
+  "https://discord.com/api/webhooks/ZZZZZZZZ/ZZZZZZZZ",
+]
 exclude_keyword = ["warzone", "bundle"]
 cooldown = 900
 retries = 3

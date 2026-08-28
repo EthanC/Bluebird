@@ -73,7 +73,7 @@ Bluebird creates `data/state.toml` on startup. The first successful profile chec
 
 ## Configuration
 
-Each `[[instances.x]]` table defines one polling loop, one or more usernames, and a destination webhook. Add another table when accounts need a different webhook, schedule, or filter set.
+Each `[[instances.x]]` table defines one polling loop, one or more usernames, and one or more destination webhooks. Add another table when accounts need a different schedule or filter set. Set exactly one of `discord_webhook_url` and `discord_webhook_urls` per instance.
 
 ```toml
 [instances]
@@ -91,7 +91,8 @@ proxy = true
 | Key | Description | Type | Required | Default |
 | --- | --- | --- | :---: | --- |
 | `usernames` | X usernames to track, without `@` | String array | Yes | None |
-| `discord_webhook_url` | Discord webhook that receives post notifications | String | Yes | None |
+| `discord_webhook_url` | Discord webhook that receives post notifications; mutually exclusive with `discord_webhook_urls` | String | Conditional | None |
+| `discord_webhook_urls` | Discord webhooks that receive post notifications; mutually exclusive with `discord_webhook_url` | String array | Conditional | None |
 | `cooldown` | Minimum seconds to wait after all usernames are checked | Number | No | `60` |
 | `retries` | Number of retries for each X data-service request | Integer | No | `3` |
 | `retry_delay` | Seconds to wait between retries for each X data-service request | Number | No | `5.0` |
