@@ -8,12 +8,7 @@ from threading import Event
 from typing import Protocol, Self, Sequence
 from urllib.parse import urlsplit
 
-from archivist import (
-    ArchivistError,
-    InternetArchiveAccount,
-    InternetArchiveClient,
-    InternetArchiveSaveOptions,
-)
+from archivist import ArchivistError, InternetArchiveSaveOptions
 from clyde import AllowedMentions, Webhook
 from clyde.components import (
     ActionRow,
@@ -33,6 +28,7 @@ from clyde.timestamp import Timestamp
 from environs import env
 from loguru import logger
 
+from .archive import InternetArchiveSession
 from .config import XConfig
 from .format import Format
 from .state import StateStore, XCursor
@@ -157,16 +153,15 @@ class XInstance:
         self: Self,
         sources: Sequence[XDataSource],
         state: StateStore,
-        archive_account: InternetArchiveAccount | None = None,
+        archive_session: InternetArchiveSession | None = None,
     ) -> None:
         """Initialize an X instance with its post data sources."""
         self.sources: tuple[XDataSource, ...] = tuple(sources)
         self.state: StateStore = state
-        self.archive_account: InternetArchiveAccount | None = archive_account
-        self.archive_client: InternetArchiveClient | None = None
+        self.archive_client: InternetArchiveSession | None = archive_session
         self.archive_options: InternetArchiveSaveOptions | None = (
             InternetArchiveSaveOptions(capture_screenshot=True, save_to_archive=True)
-            if archive_account
+            if archive_session and archive_session.authenticated
             else None
         )
         self.index: int = 0
@@ -225,52 +220,42 @@ class XInstance:
         logger.info(f"{self.log()} Loaded instance configuration")
 
         cooldown_configured: float = config.cooldown
-        self.archive_client = (
-            InternetArchiveClient(account=self.archive_account)
-            if config.archive
-            else None
-        )
 
         if self.archive_client:
-            mode: str = "authenticated" if self.archive_account else "anonymous"
+            mode: str = (
+                "authenticated" if self.archive_client.authenticated else "anonymous"
+            )
             logger.info(f"{self.log()} Enabled {mode} Internet Archive captures")
 
-        try:
-            while not stop.is_set():
-                cooldown: float = cooldown_configured
+        while not stop.is_set():
+            cooldown: float = cooldown_configured
 
-                for index, username in enumerate(self.usernames):
-                    if stop.is_set():
+            for index, username in enumerate(self.usernames):
+                if stop.is_set():
+                    return
+
+                if environ.get("DEBUG_STATE"):
+                    debug_created_at: int = env.int("DEBUG_STATE")
+                    self.state.set(
+                        self.state_key,
+                        username,
+                        XCursor(debug_created_at, "0"),
+                        force=True,
+                    )
+
+                cooldown_new: float | None = self.watch_user(username)
+
+                if cooldown_new and cooldown_new > cooldown:
+                    cooldown = cooldown_new
+
+                if (index + 1) < len(self.usernames):
+                    # Wait between watching users to avoid API load
+                    if stop.wait(random.uniform(3.0, 10.0)):
                         return
 
-                    if environ.get("DEBUG_STATE"):
-                        debug_created_at: int = env.int("DEBUG_STATE")
-                        self.state.set(
-                            self.state_key,
-                            username,
-                            XCursor(debug_created_at, "0"),
-                            force=True,
-                        )
+            logger.info(f"{self.log()} Instance is sleeping for {int(cooldown):,}s...")
 
-                    cooldown_new: float | None = self.watch_user(username)
-
-                    if cooldown_new and cooldown_new > cooldown:
-                        cooldown = cooldown_new
-
-                    if (index + 1) < len(self.usernames):
-                        # Wait between watching users to avoid API load
-                        if stop.wait(random.uniform(3.0, 10.0)):
-                            return
-
-                logger.info(
-                    f"{self.log()} Instance is sleeping for {int(cooldown):,}s..."
-                )
-
-                stop.wait(cooldown)
-        finally:
-            if self.archive_client:
-                self.archive_client.close()
-                self.archive_client = None
+            stop.wait(cooldown)
 
     def watch_user(self: Self, username: str) -> float | None:
         """Process user data and trigger notifications."""

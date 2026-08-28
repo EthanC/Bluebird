@@ -14,6 +14,7 @@ from environs import env
 from loguru import logger
 from loguru_discord import DiscordSink, Intercept
 
+from core.archive import InternetArchiveSession
 from core.bettertwitfix import BetterTwitFix
 from core.config import XConfig, load_x_configs
 from core.fxembed import FxEmbed
@@ -151,10 +152,17 @@ def start() -> None:
     stop: Event = Event()
     failures: Queue[tuple[int, Exception]] = Queue()
     threads: list[Thread] = []
+    archive_session: InternetArchiveSession | None = (
+        InternetArchiveSession(archive_account)
+        if any(config.archive for config in configs)
+        else None
+    )
 
     for index, config in enumerate(configs):
         instance = XInstance(
-            [factory() for factory in source_factories], state, archive_account
+            [factory() for factory in source_factories],
+            state,
+            archive_session if config.archive else None,
         )
         thread = Thread(
             target=run_instance,
@@ -179,6 +187,9 @@ def start() -> None:
 
         for thread in threads:
             thread.join()
+
+        if archive_session:
+            archive_session.close()
 
         logger.complete()
 
