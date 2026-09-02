@@ -37,6 +37,7 @@ USERNAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,15}")
 ALT_TEXT_MAX_LENGTH = 1_024
 MAIN_TEXT_MAX_LENGTH = 3_000
 RELATED_TEXT_MAX_LENGTH = 800
+WebhookDelivery = tuple[Webhook, str]
 
 
 def _valid_https_url(url: str, hosts: set[str] | None = None) -> bool:
@@ -318,8 +319,12 @@ class XInstance:
                 f"{self.log(username, post_id)} Discovered new post {post.url}"
             )
 
+            deliveries: tuple[WebhookDelivery, ...] = self.notify(post)
             archive_url: str | None = self.archive_post(post)
-            self.notify(post, archive_url)
+
+            if archive_url:
+                self.add_archive_button(deliveries, archive_url)
+
             self.state.set(self.state_key, username, post_cursor)
             cursor = post_cursor
 
@@ -467,8 +472,8 @@ class XInstance:
 
         return archive_url
 
-    def notify(self: Self, post: XPost, archive_url: str | None = None) -> None:
-        """Send a Discord Webhook notification for the provided X post."""
+    def notify(self: Self, post: XPost) -> tuple[WebhookDelivery, ...]:
+        """Send a Discord Webhook notification and return its message handles."""
         post_containers: list[Container] = []
         original_post: XPost | None = None
 
@@ -517,21 +522,54 @@ class XInstance:
         container.add_component(Seperator(divider=True, spacing=SeperatorSpacing.SMALL))
         container.add_component(self.build_post_footer(post))
 
-        outbound: ActionRow = self.build_post_outbound(post, original_post, archive_url)
-
         logger.debug(f"{self.log(post.username, post.post_id)} Built Webhook for post")
+        deliveries: list[WebhookDelivery] = []
 
         for webhook_url in self.webhook_urls:
             webhook = Webhook(
                 url=webhook_url, allowed_mentions=AllowedMentions(parse=[])
             )
             webhook.add_component(container)
-            webhook.add_component(outbound)
+            webhook.add_component(self.build_post_outbound(post, original_post))
+            webhook.set_wait(True)
 
             try:
-                webhook.execute()
+                response = webhook.execute()
+                message_id = response.json().get("id")
             except Exception:
                 raise RuntimeError("Discord webhook delivery failed") from None
+
+            if not isinstance(message_id, str) or not message_id:
+                raise RuntimeError("Discord webhook delivery returned no message ID")
+
+            deliveries.append((webhook, message_id))
+
+        return tuple(deliveries)
+
+    def add_archive_button(
+        self: Self, deliveries: tuple[WebhookDelivery, ...], archive_url: str
+    ) -> None:
+        """Add an Internet Archive link to delivered webhook messages."""
+        for webhook, message_id in deliveries:
+            if not isinstance(webhook.components, list) or not isinstance(
+                webhook.components[-1], ActionRow
+            ):
+                raise AssertionError("Webhook outbound actions were not initialized")
+
+            outbound: ActionRow = webhook.components[-1]
+            powered_by: LinkButton = outbound.components[-1]
+            outbound.remove_component(powered_by)
+            outbound.add_component(
+                [
+                    LinkButton(label="View Post on Internet Archive", url=archive_url),
+                    powered_by,
+                ]
+            )
+
+            try:
+                webhook.edit_message(message_id)
+            except Exception:
+                raise RuntimeError("Discord webhook edit failed") from None
 
     def build_post(
         self: Self, post: XPost, mini: bool = False, *, include_footer: bool = True
