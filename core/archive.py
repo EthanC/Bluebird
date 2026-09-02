@@ -1,7 +1,8 @@
 """Manage shared Internet Archive authentication and captures."""
 
+from collections import deque
 from collections.abc import Callable
-from threading import Lock
+from threading import Condition, Lock
 from typing import Self, TypeVar
 
 from archivist import (
@@ -25,6 +26,8 @@ class InternetArchiveSession:
         self._client: InternetArchiveClient | None = None
         self._retired_clients: list[InternetArchiveClient] = []
         self._lock: Lock = Lock()
+        self._save_condition: Condition = Condition()
+        self._save_queue: deque[object] = deque()
         self._closed: bool = False
 
     def _new_client(self: Self) -> InternetArchiveClient:
@@ -84,15 +87,26 @@ class InternetArchiveSession:
     def save(
         self: Self, target_url: str, options: InternetArchiveSaveOptions | None = None
     ) -> InternetArchiveSuccessStatus:
-        """Capture a URL while preserving completed work across reauthentication."""
-        effective_options = options or InternetArchiveSaveOptions()
-        job = self._run(lambda client: client.submit(target_url, effective_options))
-        capture = self._run(lambda client: client.wait(job))
+        """Capture a URL after all previously queued captures have completed."""
+        queue_entry = object()
 
-        if effective_options.save_to_archive:
-            self._run(lambda client: client.add_to_my_web_archive(capture))
+        with self._save_condition:
+            self._save_queue.append(queue_entry)
+            self._save_condition.wait_for(lambda: self._save_queue[0] is queue_entry)
 
-        return capture
+        try:
+            effective_options = options or InternetArchiveSaveOptions()
+            job = self._run(lambda client: client.submit(target_url, effective_options))
+            capture = self._run(lambda client: client.wait(job))
+
+            if effective_options.save_to_archive:
+                self._run(lambda client: client.add_to_my_web_archive(capture))
+
+            return capture
+        finally:
+            with self._save_condition:
+                self._save_queue.popleft()
+                self._save_condition.notify_all()
 
     def close(self: Self) -> None:
         """Close every client created by this session."""
