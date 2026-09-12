@@ -15,6 +15,7 @@ class CarryFeed(FxEmbed):
 
     service_name: str = "CarryFeed"
     api_url: str = "https://api.carryfeed.com/api"
+    user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
     timeline_page_size: int = 40
     supports_timeline_since: bool = False
 

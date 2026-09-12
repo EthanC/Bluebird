@@ -1,6 +1,7 @@
 """FxEmbed data source for X posts (https://github.com/FxEmbed/FxEmbed)."""
 
 import re
+from os import getenv
 from re import Pattern
 from typing import Any, Self
 
@@ -35,6 +36,9 @@ class FxEmbed:
     def __init__(self: Self, circuit_breaker: ServiceCircuitBreaker) -> None:
         """Initialize the data source with shared service health state."""
         self.circuit_breaker: ServiceCircuitBreaker = circuit_breaker
+        self.user_agent = getenv(
+            f"USER_AGENT_{self.service_name.upper()}", self.user_agent
+        )
 
     def log(self: Self, username: str, post_id: str | None = None) -> str:
         """Craft the head of a source log message."""

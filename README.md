@@ -73,6 +73,9 @@ Bluebird reads environment variables from the process and an optional `.env` fil
 | `SERVICE_FAILURE_THRESHOLD` | Consecutive failed requests before a data source is temporarily disabled; retries are counted as one request and confirmed missing resources are excluded | Integer | No | `10` |
 | `SERVICE_DISABLE_SECONDS` | Seconds a failed data source remains disabled before Bluebird makes one recovery request | Number | No | `3600` |
 | `SERVICE_DISABLE_ERROR_THRESHOLD` | Consecutive disable periods before Bluebird logs an error for a prolonged outage; a successful recovery resets the count | Integer | No | `24` |
+| `USER_AGENT_BETTERTWITFIX` | User agent sent to BetterTwitFix | String | No | `"https://github.com/EthanC/Bluebird"` |
+| `USER_AGENT_CARRYFEED` | User agent sent to CarryFeed | String | No | `"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"` |
+| `USER_AGENT_FXEMBED` | User agent sent to FxEmbed | String | No | `"https://github.com/EthanC/Bluebird"` |
 | `DISABLE_BETTERTWITFIX` | Disable the BetterTwitFix data source for every X instance | Boolean | No | `false` |
 | `DISABLE_CARRYFEED` | Disable the CarryFeed data source for every X instance | Boolean | No | `false` |
 | `DISABLE_FXEMBED` | Disable the FxEmbed data source for every X instance | Boolean | No | `false` |
