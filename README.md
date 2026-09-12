@@ -82,6 +82,8 @@ Bluebird reads environment variables from the process and an optional `.env` fil
 
 Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if all data sources are disabled.
 
+CarryFeed's anonymous API responses report a 60-request client limit and a 180-request IP limit. Bluebird paces CarryFeed request starts across all X instances at 59 requests per 60 seconds, updates that pace from each response's `x-rate-limit-limit` and `x-rate-limit-ip-limit` headers, and pauses every CarryFeed caller when a 429 response supplies `Retry-After`. When `Retry-After` is absent, Bluebird waits one 60-second window, the conservative choice because [Cloudflare Workers rate-limit bindings support 10- or 60-second periods](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/#configuration). Separate Bluebird processes do not share this local pacing state and still contribute to CarryFeed's IP limit.
+
 When Internet Archive credentials are present, Bluebird requests a screenshot and adds captures to the account's My Web Archive. Without credentials, archive-enabled instances submit anonymous captures, which cannot include screenshots or My Web Archive saves.
 
 ## Configuration

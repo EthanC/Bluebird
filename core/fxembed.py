@@ -205,13 +205,8 @@ class FxEmbed:
             params["since"] = str(max(cursor.created_at - 1, 0))
 
         return retry_request(
-            lambda: niquests.get(
-                f"{self.api_url}/profile/{username}/statuses",
-                params=params,
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=0,
+            lambda: self._get(
+                f"{self.api_url}/profile/{username}/statuses", params=params
             ).raise_for_status(),
             self.retries,
             self.retry_delay,
@@ -222,13 +217,7 @@ class FxEmbed:
     def _fetch_profile_username(self: Self, username: str) -> str:
         """Fetch the canonical username for an available profile."""
         res: Response = retry_request(
-            lambda: niquests.get(
-                f"{self.api_url}/profile/{username}",
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=0,
-            ).raise_for_status(),
+            lambda: self._get(f"{self.api_url}/profile/{username}").raise_for_status(),
             self.retries,
             self.retry_delay,
             niquests.RequestException,
@@ -291,17 +280,22 @@ class FxEmbed:
     def _request_post(self: Self, username: str, post_id: str) -> Response:
         """Request one post from FxEmbed."""
         return retry_request(
-            lambda: niquests.get(
-                f"{self.api_url}/status/{post_id}",
-                headers={"User-Agent": self.user_agent},
-                timeout=5,
-                allow_redirects=False,
-                retries=0,
-            ).raise_for_status(),
+            lambda: self._get(f"{self.api_url}/status/{post_id}").raise_for_status(),
             self.retries,
             self.retry_delay,
             niquests.RequestException,
             retry_transient_request,
+        )
+
+    def _get(self: Self, url: str, params: dict[str, str] | None = None) -> Response:
+        """Send one data-service request."""
+        return niquests.get(
+            url,
+            params=params,
+            headers={"User-Agent": self.user_agent},
+            timeout=5,
+            allow_redirects=False,
+            retries=0,
         )
 
     @staticmethod
