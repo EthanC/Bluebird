@@ -6,18 +6,18 @@ readme = "README.md"
 requires-python = ">=3.14"
 authors = [{ name = "EthanC", email = "16727756+EthanC@users.noreply.github.com" }]
 dependencies = [
-  "archivist-py>=1.0.1",
-  "discord-clyde>=1.0.0",
-  "environs>=15.1.0",
+  "archivist-py>=1.1.0",
+  "discord-clyde>=1.1.0",
+  "environs>=15.2.0",
   "loguru>=0.7.3",
   "loguru-discord>=2.1.0",
-  "niquests>=3.21.0",
+  "niquests>=3.21.1",
 ]
 
 [dependency-groups]
 dev = [
-  "ruff>=0.16.4",
-  "ty>=0.0.73",
+  "ruff>=0.16.7",
+  "ty>=0.0.81",
 ]
 
 [tool.ruff]
