@@ -16,6 +16,7 @@ RUN uv sync --locked --no-dev --no-install-project
 FROM ${PYTHON_IMAGE}
 
 ENV PATH="/bluebird/.venv/bin:$PATH" \
+    BLUEBIRD_HEALTHCHECK_FILE=/tmp/bluebird-health \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/bluebird/.venv
@@ -35,4 +36,6 @@ COPY docker-entrypoint.py /usr/local/bin/docker-entrypoint.py
 USER 0
 
 ENTRYPOINT ["python", "/usr/local/bin/docker-entrypoint.py"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import os, time; path = os.environ['BLUEBIRD_HEALTHCHECK_FILE']; raise SystemExit(not (os.path.isfile(path) and time.time() - os.path.getmtime(path) < 10))"]
 CMD ["python", "bluebird.py"]

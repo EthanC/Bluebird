@@ -152,6 +152,10 @@ def start() -> None:
     stop: Event = Event()
     failures: Queue[tuple[int, Exception]] = Queue()
     threads: list[Thread] = []
+    health_path_value: str | None = env.str("BLUEBIRD_HEALTHCHECK_FILE", None)
+    health_path: Path | None = (
+        Path(health_path_value) if health_path_value is not None else None
+    )
     archive_session: InternetArchiveSession | None = (
         InternetArchiveSession(archive_account)
         if any(config.archive for config in configs)
@@ -174,6 +178,12 @@ def start() -> None:
 
     try:
         while not stop.wait(1):
+            if health_path:
+                if all(thread.is_alive() for thread in threads):
+                    health_path.touch()
+                else:
+                    health_path.unlink(missing_ok=True)
+
             try:
                 index, error = failures.get_nowait()
             except Empty:
@@ -184,6 +194,9 @@ def start() -> None:
         logger.info("Shutting down Bluebird")
     finally:
         stop.set()
+
+        if health_path:
+            health_path.unlink(missing_ok=True)
 
         for thread in threads:
             thread.join()
