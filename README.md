@@ -61,10 +61,12 @@ Bluebird creates `data/state.toml` on startup. The first successful profile chec
 
 ## Environment Variables
 
-Bluebird reads environment variables from the process and an optional `.env` file in the repository root. All environment variables are optional.
+Bluebird reads environment variables from the process and an optional `.env` file in the repository root. All environment variables are optional. `PUID` and `PGID` are container settings and are not loaded from Bluebird's `.env` file.
 
 | Variable | Description | Type | Required | Default |
 | --- | --- | --- | :---: | --- |
+| `PUID` | User ID used to run Bluebird and own the mounted `data` directory in Docker | Integer | No | `1000` |
+| `PGID` | Group ID used to run Bluebird and own the mounted `data` directory in Docker | Integer | No | `1000` |
 | `LOG_LEVEL` | Minimum level written to the console | String | No | `"DEBUG"` |
 | `LOG_DISCORD_WEBHOOK_URL` | Discord webhook that receives Bluebird's own logs; post notifications use the webhooks in `config.toml` | URL | No | None |
 | `LOG_DISCORD_WEBHOOK_LEVEL` | Minimum level sent to `LOG_DISCORD_WEBHOOK_URL` | String | No | `"WARNING"` |
