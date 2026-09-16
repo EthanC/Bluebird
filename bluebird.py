@@ -1,6 +1,7 @@
 """Entrypoint for Bluebird."""
 
 import logging
+import os
 from collections.abc import Callable
 from functools import partial
 from math import isfinite
@@ -8,6 +9,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from sys import stdout
 from threading import Event, Thread
+from typing import Any
 
 from archivist import InternetArchiveAccount
 from environs import env
@@ -26,6 +28,30 @@ from core.x import XDataSource, XInstance
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
+def configure_logging() -> None:
+    """Install Bluebird's final console, standard-library, and Discord sinks."""
+    level: str = env.str("LOG_LEVEL", "DEBUG")
+    logger.remove()
+    logger.add(stdout, level=level, backtrace=False, diagnose=False)
+    logging.basicConfig(handlers=[Intercept(None)], level=0, force=True)
+
+    logger.info(f"Set console logging level to {level}")
+
+    if url := env.url("LOG_DISCORD_WEBHOOK_URL", None):
+        logger.add(
+            DiscordSink(url.geturl()),
+            level=env.str("LOG_DISCORD_WEBHOOK_LEVEL", "WARNING"),
+            backtrace=False,
+            diagnose=False,
+            enqueue=True,
+            filter=lambda record: (
+                not (record["name"] or "").startswith(("clyde", "loguru_discord"))
+            ),
+        )
+
+        logger.info("Enabled logging to Discord webhook")
+
+
 def run_instance(
     instance: XInstance,
     config: XConfig,
@@ -42,33 +68,43 @@ def run_instance(
 
 def start() -> None:
     """Initialize Bluebird and begin primary functionality."""
+    loaded_environment: bool = bool(env.read_env(PROJECT_ROOT / ".env", recurse=False))
+    os.environ.setdefault("TWS_TELEMETRY", "0")
+    twscraper_cookies: str | None = env.str("TWSCRAPER_COOKIES", None)
+    twscraper_disabled: bool = env.bool("DISABLE_TWSCRAPER", False)
+    twscraper_components: tuple[Any, Any, Any] | None = None
+
+    if twscraper_cookies and not twscraper_disabled:
+        # Twscrape replaces all Loguru sinks when imported. Import it only after
+        # environment setup, then restore Bluebird's sinks before any work starts.
+        from core.twscraper import (
+            Twscraper,
+            TwscraperConfigurationError,
+            TwscraperRuntime,
+            validate_cookies,
+        )
+
+        twscraper_components = (
+            Twscraper,
+            TwscraperRuntime,
+            TwscraperConfigurationError,
+        )
+
+    configure_logging()
     logger.info("Bluebird")
     logger.info("https://github.com/EthanC/Bluebird")
 
-    # Reroute standard logging to Loguru
-    logging.basicConfig(handlers=[Intercept(None)], level=0, force=True)
-
-    if env.read_env(PROJECT_ROOT / ".env", recurse=False):
+    if loaded_environment:
         logger.info("Loaded environment variables")
 
-    if level := env.str("LOG_LEVEL", None):
-        logger.remove()
-        logger.add(stdout, level=level)
-
-        logger.info(f"Set console logging level to {level}")
-
-    if url := env.url("LOG_DISCORD_WEBHOOK_URL", None):
-        logger.add(
-            DiscordSink(url.geturl()),
-            level=env.str("LOG_DISCORD_WEBHOOK_LEVEL", "WARNING"),
-            backtrace=False,
-            enqueue=True,
-            filter=lambda record: (
-                not (record["name"] or "").startswith(("clyde", "loguru_discord"))
-            ),
-        )
-
-        logger.info("Enabled logging to Discord webhook")
+    if twscraper_cookies and not twscraper_disabled:
+        try:
+            validate_cookies(twscraper_cookies)
+        except TwscraperConfigurationError as error:
+            logger.critical(str(error))
+            raise SystemExit(1) from None
+    elif twscraper_disabled:
+        logger.warning("Disabled Twscraper data source service via DISABLE_TWSCRAPER")
 
     try:
         archive_email: str | None = env.str("INTERNET_ARCHIVE_EMAIL", None)
@@ -112,7 +148,28 @@ def start() -> None:
 
         raise SystemExit(1) from e
 
+    try:
+        config_path: Path = PROJECT_ROOT / "config.toml"
+        configs: tuple[XConfig, ...] = load_x_configs(config_path)
+        state: StateStore = StateStore(PROJECT_ROOT / "data" / "state.toml")
+    except Exception as e:
+        logger.opt(exception=e).critical("Failed to initialize configuration and state")
+
+        raise SystemExit(1) from e
+
+    logger.info(f"Loaded {len(configs):,} X instances from config.toml")
+    logger.info(f"Using persistent state at {state.path}")
+
     source_factories: list[Callable[[], XDataSource]] = []
+    twscraper_runtime: Any | None = None
+
+    if twscraper_components is not None and twscraper_cookies is not None:
+        Twscraper, TwscraperRuntime, _ = twscraper_components
+        twscraper_runtime = TwscraperRuntime(PROJECT_ROOT / "data" / "twscraper.db")
+        circuit_breaker = ServiceCircuitBreaker(
+            "Twscraper", failure_threshold, disable_seconds, disable_error_threshold
+        )
+        source_factories.append(partial(Twscraper, circuit_breaker, twscraper_runtime))
 
     for variable, service_name, factory in (
         ("DISABLE_BETTERTWITFIX", "BetterTwitFix", BetterTwitFix),
@@ -137,18 +194,6 @@ def start() -> None:
 
         raise SystemExit(1)
 
-    try:
-        config_path: Path = PROJECT_ROOT / "config.toml"
-        configs: tuple[XConfig, ...] = load_x_configs(config_path)
-        state: StateStore = StateStore(PROJECT_ROOT / "data" / "state.toml")
-    except Exception as e:
-        logger.opt(exception=e).critical("Failed to initialize configuration and state")
-
-        raise SystemExit(1) from e
-
-    logger.info(f"Loaded {len(configs):,} X instances from config.toml")
-    logger.info(f"Using persistent state at {state.path}")
-
     stop: Event = Event()
     failures: Queue[tuple[int, Exception]] = Queue()
     threads: list[Thread] = []
@@ -156,27 +201,43 @@ def start() -> None:
     health_path: Path | None = (
         Path(health_path_value) if health_path_value is not None else None
     )
-    archive_session: InternetArchiveSession | None = (
-        InternetArchiveSession(archive_account)
-        if any(config.archive for config in configs)
-        else None
-    )
-
-    for index, config in enumerate(configs):
-        instance = XInstance(
-            [factory() for factory in source_factories],
-            state,
-            archive_session if config.archive else None,
-        )
-        thread = Thread(
-            target=run_instance,
-            args=(instance, config, index, stop, failures),
-            name=f"x-{index}",
-        )
-        thread.start()
-        threads.append(thread)
+    archive_session: InternetArchiveSession | None = None
 
     try:
+        archive_session = (
+            InternetArchiveSession(archive_account)
+            if any(config.archive for config in configs)
+            else None
+        )
+
+        if twscraper_runtime is not None and twscraper_cookies is not None:
+            try:
+                twscraper_runtime.start(twscraper_cookies)
+            except Exception as error:
+                logger.opt(exception=error).critical(
+                    "Failed to initialize Twscraper data source"
+                )
+                raise SystemExit(1) from error
+
+            logger.info(
+                "Enabled Twscraper data source with persistent state at "
+                f"{twscraper_runtime.database_path}"
+            )
+
+        for index, config in enumerate(configs):
+            instance = XInstance(
+                [factory() for factory in source_factories],
+                state,
+                archive_session if config.archive else None,
+            )
+            thread = Thread(
+                target=run_instance,
+                args=(instance, config, index, stop, failures),
+                name=f"x-{index}",
+            )
+            thread.start()
+            threads.append(thread)
+
         while not stop.wait(1):
             if health_path:
                 if all(thread.is_alive() for thread in threads):
@@ -197,6 +258,9 @@ def start() -> None:
 
         if health_path:
             health_path.unlink(missing_ok=True)
+
+        if twscraper_runtime is not None:
+            twscraper_runtime.close()
 
         for thread in threads:
             thread.join()

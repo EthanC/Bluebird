@@ -12,6 +12,7 @@ dependencies = [
   "loguru>=0.7.3",
   "loguru-discord>=2.1.0",
   "niquests>=3.21.1",
+  "twscrape>=0.20.1",
 ]
 
 [dependency-groups]

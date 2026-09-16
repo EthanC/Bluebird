@@ -22,13 +22,15 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 ## Docker Compose
 
-Copy `config.example.toml` to `config.toml`, add your usernames and Discord webhook URLs, create a `data` directory, then create `compose.yaml` beside them:
+Copy `config.example.toml` to `config.toml`, add your usernames and Discord webhook URLs, copy `.env.example` to `.env`, create a `data` directory, then create `compose.yaml` beside them:
 
 ```yaml
 services:
   bluebird:
     container_name: bluebird
     image: ghcr.io/ethanc/bluebird:latest
+    env_file:
+      - .env
     volumes:
       - ./config.toml:/bluebird/config.toml:ro
       - ./data:/bluebird/data
@@ -49,7 +51,7 @@ Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
 uv sync
 ```
 
-Copy `config.example.toml` to `config.toml` and edit it. To configure logging, Internet Archive credentials, or data-source availability, also copy `.env.example` to `.env`. All environment variables are optional.
+Copy `config.example.toml` to `config.toml` and edit it. To configure logging, authenticated X access, Internet Archive credentials, or data-source availability, also copy `.env.example` to `.env`. All environment variables are optional.
 
 Run Bluebird from the repository root:
 
@@ -72,17 +74,33 @@ Bluebird reads environment variables from the process and an optional `.env` fil
 | `LOG_DISCORD_WEBHOOK_LEVEL` | Minimum level sent to `LOG_DISCORD_WEBHOOK_URL` | String | No | `"WARNING"` |
 | `INTERNET_ARCHIVE_EMAIL` | Internet Archive account email address; must be set with `INTERNET_ARCHIVE_PASSWORD` | String | Conditional | None |
 | `INTERNET_ARCHIVE_PASSWORD` | Internet Archive account password; must be set with `INTERNET_ARCHIVE_EMAIL` | String | Conditional | None |
+| `TWSCRAPER_COOKIES` | X Cookie header containing nonempty `auth_token` and `ct0` values; enables authenticated Twscraper access unless disabled | String | No | None |
+| `TWS_TELEMETRY` | Twscrape upstream telemetry; Bluebird disables it by default, while any value other than `0` uses twscrape's telemetry behavior | String | No | `"0"` |
 | `SERVICE_FAILURE_THRESHOLD` | Consecutive failed requests before a data source is temporarily disabled; retries are counted as one request and confirmed missing resources are excluded | Integer | No | `10` |
 | `SERVICE_DISABLE_SECONDS` | Seconds a failed data source remains disabled before Bluebird makes one recovery request | Number | No | `3600` |
 | `SERVICE_DISABLE_ERROR_THRESHOLD` | Consecutive disable periods before Bluebird logs an error for a prolonged outage; a successful recovery resets the count | Integer | No | `24` |
 | `USER_AGENT_BETTERTWITFIX` | User agent sent to BetterTwitFix | String | No | `"https://github.com/EthanC/Bluebird"` |
 | `USER_AGENT_CARRYFEED` | User agent sent to CarryFeed | String | No | `"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"` |
 | `USER_AGENT_FXEMBED` | User agent sent to FxEmbed | String | No | `"https://github.com/EthanC/Bluebird"` |
+| `DISABLE_TWSCRAPER` | Disable the Twscraper data source even when `TWSCRAPER_COOKIES` is configured | Boolean | No | `false` |
 | `DISABLE_BETTERTWITFIX` | Disable the BetterTwitFix data source for every X instance | Boolean | No | `false` |
 | `DISABLE_CARRYFEED` | Disable the CarryFeed data source for every X instance | Boolean | No | `false` |
 | `DISABLE_FXEMBED` | Disable the FxEmbed data source for every X instance | Boolean | No | `false` |
 
-Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if all data sources are disabled.
+Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if all data sources are disabled. Enabled sources are all queried and merged in priority order: Twscraper, BetterTwitFix, CarryFeed, then FxEmbed. The first source wins when more than one returns the same post.
+
+### Twscraper Authentication
+
+Twscraper is opt-in. While signed in to X in a browser, copy the `auth_token` and `ct0` cookies into `.env` as a Cookie header:
+
+```dotenv
+TWSCRAPER_COOKIES="auth_token=...; ct0=..."
+DISABLE_TWSCRAPER=false
+```
+
+Restart Bluebird after changing the cookies. Bluebird imports changed cookies on startup and creates `data/twscraper.db` automatically in the existing writable data volume. Unchanged cookies leave Twscraper's account state, rate-limit locks, and request statistics untouched. If X expires the session, replace both values in `.env` and restart; Bluebird does not perform interactive login or hot reload credentials.
+
+Both `.env` and `data/twscraper.db` contain X credentials and must be protected and excluded from backups or sharing as appropriate. Removing `TWSCRAPER_COOKIES` or setting `DISABLE_TWSCRAPER=true` prevents Bluebird from initializing or using the stored account. For Docker Compose, `env_file: .env` forwards the cookie setting into the container; Compose's automatic `.env` interpolation alone does not pass it to Bluebird.
 
 CarryFeed's anonymous API responses report a 60-request client limit and a 180-request IP limit. Bluebird paces CarryFeed request starts across all X instances at 59 requests per 60 seconds, updates that pace from each response's `x-rate-limit-limit` and `x-rate-limit-ip-limit` headers, and pauses every CarryFeed caller when a 429 response supplies `Retry-After`. When `Retry-After` is absent, Bluebird waits one 60-second window, the conservative choice because [Cloudflare Workers rate-limit bindings support 10- or 60-second periods](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/#configuration). Separate Bluebird processes do not share this local pacing state and still contribute to CarryFeed's IP limit.
 
