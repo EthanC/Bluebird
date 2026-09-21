@@ -2,7 +2,7 @@
 
 # Bluebird
 
-Bluebird tracks users on X (formerly Twitter) and sends post notifications to Discord.
+Bluebird watches X accounts and sends new posts to Discord webhooks.
 
 [![Python 3.14+](https://img.shields.io/badge/Python-3.14%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Build](https://img.shields.io/github/actions/workflow/status/EthanC/Bluebird/workflow.yaml?branch=main&style=flat-square&label=build)](https://github.com/EthanC/Bluebird/actions/workflows/workflow.yaml)
@@ -14,16 +14,16 @@ Bluebird tracks users on X (formerly Twitter) and sends post notifications to Di
 
 ## Features
 
-- Track several usernames and webhooks from one process.
-- Filter notifications by media, keywords, replies, and reposts.
-- Optionally archive notified posts with the Internet Archive Wayback Machine.
-- Optionally route X links through a configurable proxy frontend.
-- Render posts with Discord components, media galleries, and links back to X.
-- Run from the published Docker container or directly with Python and `uv`.
+- Watch multiple accounts from one process.
+- Send notifications to one or more Discord webhooks.
+- Filter posts by media, keywords, replies, or reposts.
+- Archive posts with the Wayback Machine.
+- Replace X links with proxy links.
+- Run with Docker Compose or Python and [`uv`](https://docs.astral.sh/uv/).
 
 ## Docker Compose
 
-Copy `config.example.toml` to `config.toml`, add your usernames and Discord webhook URLs, copy `.env.example` to `.env`, create a `data` directory, then create `compose.yaml` beside them:
+Create `config.toml` from `config.example.toml` and `.env` from `.env.example`. Add your accounts and webhooks, create a `data` directory, then save this as `compose.yaml`:
 
 ```yaml
 services:
@@ -46,70 +46,51 @@ docker compose up -d
 
 ## Python
 
-Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/) are required.
+Install Python 3.14 or newer and [`uv`](https://docs.astral.sh/uv/), then install the dependencies:
 
 ```console
 uv sync
 ```
 
-Copy `config.example.toml` to `config.toml` and edit it. To configure logging, authenticated X access, Internet Archive credentials, or data-source availability, also copy `.env.example` to `.env`. All environment variables are optional.
-
-Run Bluebird from the repository root:
+Create and edit `config.toml` from the example, then run Bluebird from the repository root:
 
 ```console
 uv run bluebird.py
 ```
 
-Bluebird creates `data/state.toml` on startup. The first successful profile check records the newest post as the starting cursor; notifications begin with posts published afterward.
+Bluebird creates `data/state.toml` on startup. Its first check sets the starting point; only newer posts trigger notifications.
 
 ## Environment Variables
 
-Bluebird reads environment variables from the process and an optional `.env` file in the repository root. All environment variables are optional. `PUID` and `PGID` are container settings and are not loaded from Bluebird's `.env` file.
+Environment variables are optional. Bluebird reads them from the process and from `.env`; `PUID` and `PGID` apply only to the container.
 
 | Variable | Description | Type | Required | Default |
 | --- | --- | --- | :---: | --- |
-| `PUID` | User ID used to run Bluebird and own the mounted `data` directory in Docker | Integer | No | `1000` |
-| `PGID` | Group ID used to run Bluebird and own the mounted `data` directory in Docker | Integer | No | `1000` |
-| `LOG_LEVEL` | Minimum level written to the console | String | No | `"DEBUG"` |
-| `LOG_DISCORD_WEBHOOK_URL` | Discord webhook that receives Bluebird's own logs; post notifications use the webhooks in `config.toml` | URL | No | None |
-| `LOG_DISCORD_WEBHOOK_LEVEL` | Minimum level sent to `LOG_DISCORD_WEBHOOK_URL` | String | No | `"WARNING"` |
-| `INTERNET_ARCHIVE_EMAIL` | Internet Archive account email address; must be set with `INTERNET_ARCHIVE_PASSWORD` | String | Conditional | None |
-| `INTERNET_ARCHIVE_PASSWORD` | Internet Archive account password; must be set with `INTERNET_ARCHIVE_EMAIL` | String | Conditional | None |
-| `TWSCRAPER_COOKIES` | X Cookie header containing nonempty `auth_token` and `ct0` values; enables authenticated Twscraper access unless disabled | String | No | None |
-| `TWS_TELEMETRY` | Twscrape upstream telemetry; Bluebird disables it by default, while any value other than `0` uses twscrape's telemetry behavior | String | No | `"0"` |
-| `SERVICE_FAILURE_THRESHOLD` | Consecutive failed requests before a data source is temporarily disabled; retries are counted as one request and confirmed missing resources are excluded | Integer | No | `10` |
-| `SERVICE_DISABLE_SECONDS` | Seconds a failed data source remains disabled before Bluebird makes one recovery request | Number | No | `3600` |
-| `SERVICE_DISABLE_ERROR_THRESHOLD` | Consecutive disable periods before Bluebird logs an error for a prolonged outage; a successful recovery resets the count | Integer | No | `24` |
+| `PUID` | Container user ID and owner of `data` | Integer | No | `1000` |
+| `PGID` | Container group ID and owner of `data` | Integer | No | `1000` |
+| `LOG_LEVEL` | Console log level | String | No | `"DEBUG"` |
+| `LOG_DISCORD_WEBHOOK_URL` | Webhook for Bluebird logs, not post notifications | URL | No | None |
+| `LOG_DISCORD_WEBHOOK_LEVEL` | Discord log level | String | No | `"WARNING"` |
+| `INTERNET_ARCHIVE_EMAIL` | Internet Archive email; set with the password | String | Conditional | None |
+| `INTERNET_ARCHIVE_PASSWORD` | Internet Archive password; set with the email | String | Conditional | None |
+| `TWSCRAPER_COOKIES` | X `auth_token` and `ct0` cookies | String | No | None |
+| `TWS_TELEMETRY` | Set to `0` to disable twscrape telemetry | String | No | `"0"` |
+| `SERVICE_FAILURE_THRESHOLD` | Failed requests before a source is disabled | Integer | No | `10` |
+| `SERVICE_DISABLE_SECONDS` | Time before retrying a disabled source | Number | No | `3600` |
+| `SERVICE_DISABLE_ERROR_THRESHOLD` | Failed recovery periods before an error is logged | Integer | No | `24` |
 | `USER_AGENT_BETTERTWITFIX` | User agent sent to BetterTwitFix | String | No | `"https://github.com/EthanC/Bluebird"` |
-| `USER_AGENT_CARRYFEED` | User agent sent to CarryFeed | String | No | `"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"` |
+| `USER_AGENT_CARRYFEED` | User agent sent to CarryFeed | String | No | Chrome 152 on Windows 10 |
 | `USER_AGENT_FXEMBED` | User agent sent to FxEmbed | String | No | `"https://github.com/EthanC/Bluebird"` |
-| `DISABLE_TWSCRAPER` | Disable the Twscraper data source even when `TWSCRAPER_COOKIES` is configured | Boolean | No | `false` |
-| `DISABLE_BETTERTWITFIX` | Disable the BetterTwitFix data source for every X instance | Boolean | No | `false` |
-| `DISABLE_CARRYFEED` | Disable the CarryFeed data source for every X instance | Boolean | No | `false` |
-| `DISABLE_FXEMBED` | Disable the FxEmbed data source for every X instance | Boolean | No | `false` |
+| `DISABLE_TWSCRAPER` | Disable Twscraper | Boolean | No | `false` |
+| `DISABLE_BETTERTWITFIX` | Disable BetterTwitFix | Boolean | No | `false` |
+| `DISABLE_CARRYFEED` | Disable CarryFeed | Boolean | No | `false` |
+| `DISABLE_FXEMBED` | Disable FxEmbed | Boolean | No | `false` |
 
-Service failures are tracked independently for each data source across all X instances. After the disable period, a successful recovery request restores the source and a failed request disables it again. The initial disable and each failed recovery request count toward `SERVICE_DISABLE_ERROR_THRESHOLD`. Bluebird exits if all data sources are disabled. Enabled sources are all queried and merged in priority order: Twscraper, BetterTwitFix, CarryFeed, then FxEmbed. The first source wins when more than one returns the same post.
-
-### Twscraper Authentication
-
-Twscraper is opt-in. While signed in to X in a browser, copy the `auth_token` and `ct0` cookies into `.env` as a Cookie header:
-
-```dotenv
-TWSCRAPER_COOKIES="auth_token=...; ct0=..."
-DISABLE_TWSCRAPER=false
-```
-
-Restart Bluebird after changing the cookies. Bluebird imports changed cookies on startup and creates `data/twscraper.db` automatically in the existing writable data volume. Unchanged cookies leave Twscraper's account state, rate-limit locks, and request statistics untouched. If X expires the session, replace both values in `.env` and restart; Bluebird does not perform interactive login or hot reload credentials.
-
-Both `.env` and `data/twscraper.db` contain X credentials and must be protected and excluded from backups or sharing as appropriate. Removing `TWSCRAPER_COOKIES` or setting `DISABLE_TWSCRAPER=true` prevents Bluebird from initializing or using the stored account. For Docker Compose, `env_file: .env` forwards the cookie setting into the container; Compose's automatic `.env` interpolation alone does not pass it to Bluebird.
-
-CarryFeed's anonymous API responses report a 60-request client limit and a 180-request IP limit. Bluebird paces CarryFeed request starts across all X instances at 59 requests per 60 seconds, updates that pace from each response's `x-rate-limit-limit` and `x-rate-limit-ip-limit` headers, and pauses every CarryFeed caller when a 429 response supplies `Retry-After`. When `Retry-After` is absent, Bluebird waits one 60-second window, the conservative choice because [Cloudflare Workers rate-limit bindings support 10- or 60-second periods](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/#configuration). Separate Bluebird processes do not share this local pacing state and still contribute to CarryFeed's IP limit.
-
-When Internet Archive credentials are present, Bluebird requests a screenshot and adds captures to the account's My Web Archive. Without credentials, archive-enabled instances submit anonymous captures, which cannot include screenshots or My Web Archive saves.
+Bluebird queries enabled sources in this order: Twscraper, BetterTwitFix, CarryFeed, then FxEmbed. A source is disabled after `SERVICE_FAILURE_THRESHOLD` failures and retried later; Bluebird exits if every source is unavailable.
 
 ## Configuration
 
-Each `[[instances.x]]` table defines one polling loop, one or more usernames, and one or more destination webhooks. Add another table when accounts need a different schedule or filter set. Set exactly one of `discord_webhook_url` and `discord_webhook_urls` per instance.
+Each `[[instances.x]]` table has its own accounts, webhooks, schedule, and filters. Use either `discord_webhook_url` or `discord_webhook_urls`, not both.
 
 ```toml
 [instances]
@@ -126,20 +107,31 @@ proxy = true
 
 | Key | Description | Type | Required | Default |
 | --- | --- | --- | :---: | --- |
-| `usernames` | X usernames to track, without `@` | String array | Yes | None |
-| `discord_webhook_url` | Discord webhook that receives post notifications; mutually exclusive with `discord_webhook_urls` | String | Conditional | None |
-| `discord_webhook_urls` | Discord webhooks that receive post notifications; mutually exclusive with `discord_webhook_url` | String array | Conditional | None |
-| `cooldown` | Minimum seconds to wait after all usernames are checked | Number | No | `60` |
-| `retries` | Number of retries for each X data-service request | Integer | No | `3` |
-| `retry_delay` | Seconds to wait between retries for each X data-service request | Number | No | `5.0` |
-| `require_media` | Send only posts that contain media | Boolean | No | `false` |
-| `require_keyword` | Send only posts containing at least one listed substring; case-insensitive | String array | No | `[]` |
+| `usernames` | X usernames without `@` | String array | Yes | None |
+| `discord_webhook_url` | One notification webhook | String | Conditional | None |
+| `discord_webhook_urls` | Multiple notification webhooks | String array | Conditional | None |
+| `cooldown` | Seconds between completed checks | Number | No | `60` |
+| `retries` | Retries per data-source request | Integer | No | `3` |
+| `retry_delay` | Seconds between retries | Number | No | `5.0` |
+| `require_media` | Require attached media | Boolean | No | `false` |
+| `require_keyword` | Require a listed substring; case-insensitive | String array | No | `[]` |
 | `exclude_reply` | Skip replies | Boolean | No | `false` |
 | `exclude_repost` | Skip reposts | Boolean | No | `false` |
-| `exclude_keyword` | Skip posts containing any listed substring; case-insensitive | String array | No | `[]` |
-| `archive` | Save posts selected for notification to the Internet Archive Wayback Machine | Boolean | No | `false` |
-| `proxy` | Replace navigational X links with proxy links; excludes media | Boolean | No | `false` |
-| `proxy_host` | Hostname used for proxy links and Internet Archive capture targets | String | No | `"nitter.app"` |
-| `proxy_name` | Proxy name used by the outbound button; requires `proxy = true` | String | No | `"Nitter"` |
+| `exclude_keyword` | Skip a listed substring; case-insensitive | String array | No | `[]` |
+| `archive` | Save notified posts to the Wayback Machine | Boolean | No | `false` |
+| `proxy` | Replace X links with proxy links | Boolean | No | `false` |
+| `proxy_host` | Host used for proxy and archive links | String | No | `"nitter.app"` |
+| `proxy_name` | Label for the proxy button | String | No | `"Nitter"` |
 
-Set `archive = true` on an X instance to save each post selected for notification to the Internet Archive Wayback Machine. Internet Archive rejects direct `x.com` captures, so Bluebird archives the corresponding URL on `proxy_host` even when `proxy = false`. Archive failures are logged without blocking the Discord notification.
+Archive requests use `proxy_host` because the Internet Archive rejects direct `x.com` captures. Credentials enable screenshots and My Web Archive; anonymous captures do not include either.
+
+## Twscraper Authentication
+
+Twscraper is optional and uses an authenticated X session. BetterTwitFix, CarryFeed, and FxEmbed require no authentication, but they are more likely to return posts late or fail requests. Sign in to X in a browser, then add its `auth_token` and `ct0` cookies to `.env`:
+
+```dotenv
+TWSCRAPER_COOKIES="auth_token=...; ct0=..."
+DISABLE_TWSCRAPER=false
+```
+
+Restart Bluebird after changing the cookies. It stores the session in `data/twscraper.db`; replace both cookies when the session expires.
