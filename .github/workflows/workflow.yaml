@@ -2,8 +2,7 @@ name: Primary
 
 on:
   push:
-    branches:
-      - main
+  pull_request:
 
 permissions:
   contents: read
@@ -27,16 +26,40 @@ jobs:
         run: uv python install
       - name: Install Dependencies
         run: uv sync --locked --dev
+      - name: Check Lockfile
+        run: uv lock --check
       - name: Run Ruff Lint
         run: uv run ruff check --no-fix .
       - name: Run Ruff Format Check
         run: uv run ruff format --check .
       - name: Run ty
         run: uv run ty check
+      - name: Run Tests
+        run: >-
+          uv run pytest
+          --cov=core
+          --cov-branch
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-report=html
+          --cov-fail-under=0
+      - name: Check Coverage Target
+        continue-on-error: true
+        run: uv run coverage report --fail-under=100
+      - name: Upload Coverage
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            htmlcov/
+          if-no-files-found: warn
 
   publish:
     name: Publish
     needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
