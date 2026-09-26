@@ -17,16 +17,16 @@ def tweet_with_links(
     return cast(
         Tweet,
         SimpleNamespace(
-            id_str="2103575607242060199",
-            url="https://x.com/_Tom_Henderson_/status/2103575607242060199",
+            id_str="123",
+            url="https://x.com/example/status/123",
             user=SimpleNamespace(
-                username="_Tom_Henderson_",
-                displayname="Tom Henderson",
+                username="example",
+                displayname="Example User",
                 rawDescription=bio,
                 descriptionLinks=description_links or [],
                 profileImageUrl="",
             ),
-            date=datetime(2026, 9, 26, tzinfo=UTC),
+            date=datetime(2000, 1, 1, tzinfo=UTC),
             rawContent=text,
             links=links,
             media=SimpleNamespace(photos=[], videos=[], animated=[]),
@@ -43,21 +43,19 @@ def tweet_with_links(
 
 def test_normalize_post_expands_tco_links() -> None:
     tweet = tweet_with_links(
-        "INISDER GAMING IS LIVEEEEEEEEE https://t.co/d2IVGwzun5",
+        "Lorem ipsum https://t.co/article",
         [
             TextLink(
-                url="https://www.youtube.com/watch?v=YirGnAwW5hU",
-                text="youtube.com/watch?v=YirGnA...",
-                tcourl="https://t.co/d2IVGwzun5",
+                url="https://example.com/article",
+                text="example.com/article",
+                tcourl="https://t.co/article",
             )
         ],
     )
 
     post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
 
-    assert post.text == (
-        "INISDER GAMING IS LIVEEEEEEEEE https://www.youtube.com/watch?v=YirGnAwW5hU"
-    )
+    assert post.text == "Lorem ipsum https://example.com/article"
 
 
 def test_normalize_post_only_expands_mapped_tco_links() -> None:
@@ -82,44 +80,36 @@ def test_normalize_post_expands_tco_links_in_bio() -> None:
         "Post text",
         [],
         bio=(
-            "Zombies news for zombies players // Donation and affiliate Linktree: "
-            "https://t.co/it9nz8l1an // Email for inquiries: "
-            "margwanetwork@gmail.com"
+            "Lorem ipsum dolor sit amet https://t.co/profile // Email: user@example.com"
         ),
         description_links=[
             TextLink(
-                url="https://linktr.ee/margwanetwork",
-                text="linktr.ee/margwanetwork",
-                tcourl="https://t.co/it9nz8l1an",
+                url="https://example.com/profile",
+                text="example.com/profile",
+                tcourl="https://t.co/profile",
             ),
-            TextLink(url="http://Margwa.net", text="Margwa.net", tcourl=None),
+            TextLink(
+                url="https://example.com/about", text="example.com/about", tcourl=None
+            ),
         ],
     )
 
     post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
 
     assert post.bio == (
-        "Zombies news for zombies players // Donation and affiliate Linktree: "
-        "https://linktr.ee/margwanetwork // Email for inquiries: "
-        "margwanetwork@gmail.com"
+        "Lorem ipsum dolor sit amet https://example.com/profile // Email: "
+        "user@example.com"
     )
 
 
 def test_normalize_post_removes_media_shortlinks() -> None:
-    tweet = tweet_with_links(
-        "Grand Theft Auto VI is on the cover of GameInformer https://t.co/s6v5vOkeNj",
-        [],
-    )
-    tweet.media.photos.append(
-        MediaPhoto(url="https://pbs.twimg.com/media/HTFPkt6W8AADmP9.jpg")
-    )
+    tweet = tweet_with_links("Lorem ipsum dolor sit amet https://t.co/media", [])
+    tweet.media.photos.append(MediaPhoto(url="https://example.com/media/photo.jpg"))
 
-    post = object.__new__(Twscraper)._normalize_post(
-        tweet, {}, {"https://t.co/s6v5vOkeNj"}
-    )
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, {"https://t.co/media"})
 
-    assert post.text == "Grand Theft Auto VI is on the cover of GameInformer"
-    assert post.media[0].url == "https://pbs.twimg.com/media/HTFPkt6W8AADmP9.jpg"
+    assert post.text == "Lorem ipsum dolor sit amet"
+    assert post.media[0].url == "https://example.com/media/photo.jpg"
 
 
 def test_media_metadata_recovers_alt_text_and_shortlinks() -> None:
@@ -129,12 +119,12 @@ def test_media_metadata_recovers_alt_text_and_shortlinks() -> None:
                 "media": [
                     {
                         "url": "https://t.co/photo",
-                        "media_url_https": "https://pbs.twimg.com/photo.jpg",
-                        "ext_alt_text": "Photo description",
+                        "media_url_https": "https://example.com/media/photo.jpg",
+                        "ext_alt_text": "Lorem ipsum",
                     },
                     {
                         "url": "https://t.co/video",
-                        "media_url_https": "https://pbs.twimg.com/video.jpg",
+                        "media_url_https": "https://example.com/media/video.jpg",
                         "ext_alt_text": None,
                     },
                 ]
@@ -144,5 +134,5 @@ def test_media_metadata_recovers_alt_text_and_shortlinks() -> None:
 
     alt_text, shortlinks = Twscraper._media_metadata(result)
 
-    assert alt_text == {"https://pbs.twimg.com/photo.jpg": "Photo description"}
+    assert alt_text == {"https://example.com/media/photo.jpg": "Lorem ipsum"}
     assert shortlinks == {"https://t.co/photo", "https://t.co/video"}

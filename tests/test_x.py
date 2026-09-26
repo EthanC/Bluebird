@@ -8,7 +8,7 @@ from core.archive import ZiggyClient
 from core.state import StateStore, XCursor
 from core.x import WebhookDelivery, XFeed, XInstance, XMedia, XPost, XPostReference
 
-RECEIPT_ID = "8c829f35-d47f-40a6-93dd-3066b5f86a6d"
+RECEIPT_ID = "00000000-0000-4000-8000-000000000000"
 TARGET_URL = "https://nitter.example/user/status/2"
 
 
@@ -61,7 +61,7 @@ class Session:
 
 class Capture:
     def archive_url(self):
-        return "https://web.archive.org/web/1/https://nitter.example/user/status/2"
+        return "https://archive.example/capture/1"
 
 
 class DirectArchive:
@@ -142,7 +142,7 @@ def test_direct_capture_still_adds_archive_button(monkeypatch: pytest.MonkeyPatc
 
     instance.watch_user("user")
 
-    archive_url = "https://web.archive.org/web/1/https://nitter.example/user/status/2"
+    archive_url = "https://archive.example/capture/1"
     assert events == ["notify", "archive"]
     assert client.targets == [TARGET_URL]
     assert archive_buttons == [(deliveries, archive_url)]
@@ -178,7 +178,7 @@ def test_notification_includes_related_post_media(
         display_name="Related",
         created_at=1,
         source="Twscraper",
-        media=(XMedia("https://pbs.twimg.com/media/photo.jpg"),),
+        media=(XMedia("https://example.com/media/photo.jpg"),),
     )
     reference = XPostReference(username=related.username, post_id=related.post_id)
     item = XPost(

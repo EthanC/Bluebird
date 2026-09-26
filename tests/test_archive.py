@@ -6,7 +6,7 @@ from niquests import Response
 
 import core.archive as archive
 
-RECEIPT_ID = "8c829f35-d47f-40a6-93dd-3066b5f86a6d"
+RECEIPT_ID = "00000000-0000-4000-8000-000000000000"
 TARGET_URL = "https://nitter.example/user/status/1"
 
 
@@ -85,7 +85,7 @@ def test_rejects_invalid_ziggy_configuration(host, identifier, message):
         archive.validate_ziggy_configuration(host, identifier)
 
 
-@pytest.mark.parametrize("host", ["ziggy.com", "192.168.1.10:9449"])
+@pytest.mark.parametrize("host", ["ziggy.example", "192.0.2.10:9449"])
 def test_normalizes_ziggy_configuration(host):
     assert archive.validate_ziggy_configuration(f" {host} ", " bluebird ") == (
         host,
