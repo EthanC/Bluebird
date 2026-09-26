@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import aclosing
@@ -377,8 +377,9 @@ class Twscraper:
                                 != profile.username.casefold()
                             ):
                                 continue
+                            alt_text, media_shortlinks = self._media_metadata(result)
                             post = self._normalize_post(
-                                tweet, self._media_alt_text(result)
+                                tweet, alt_text, media_shortlinks
                             )
                         except TypeError, ValueError, OverflowError:
                             malformed = True
@@ -436,14 +437,18 @@ class Twscraper:
             raise _TwscraperDataError("Post response returned a different ID")
 
         result = self._find_tweet_result(data, post_id)
-        post = self._normalize_post(
-            tweet, self._media_alt_text(result) if result is not None else {}
-        )
+        alt_text, media_shortlinks = self._media_metadata(result)
+        post = self._normalize_post(tweet, alt_text, media_shortlinks)
         logger.debug(f"{self.log(username, post_id)} Fetched post data")
         logger.trace(f"{self.log(username, post_id)} {post=}")
         return post
 
-    def _normalize_post(self: Self, tweet: Tweet, alt_text: Mapping[str, str]) -> XPost:
+    def _normalize_post(
+        self: Self,
+        tweet: Tweet,
+        alt_text: Mapping[str, str],
+        media_shortlinks: Collection[str],
+    ) -> XPost:
         """Translate a twscrape tweet while preserving the outer repost event."""
         media: list[XMedia] = []
         text = tweet.rawContent
@@ -451,6 +456,11 @@ class Twscraper:
         for link in tweet.links:
             if link.tcourl:
                 text = text.replace(link.tcourl, link.url)
+
+        for shortlink in media_shortlinks:
+            text = text.replace(shortlink, "")
+        if media_shortlinks:
+            text = text.rstrip()
 
         for photo in tweet.media.photos:
             media.append(XMedia(photo.url, alt_text.get(photo.url)))
@@ -669,27 +679,36 @@ class Twscraper:
         return str(post_id) if post_id is not None and str(post_id).isdigit() else None
 
     @classmethod
-    def _media_alt_text(cls, result: dict[str, Any]) -> dict[str, str]:
-        """Recover media alt text omitted by twscrape's media models."""
+    def _media_metadata(
+        cls, result: dict[str, Any] | None
+    ) -> tuple[dict[str, str], set[str]]:
+        """Recover media metadata omitted by twscrape's media models."""
+        if result is None:
+            return {}, set()
+
         tweet = result.get("tweet")
         if isinstance(tweet, dict):
             result = tweet
         legacy = result.get("legacy")
         source = legacy if isinstance(legacy, dict) else result
         media = cls._path(source, "extended_entities", "media")
-        recovered: dict[str, str] = {}
+        alt_text: dict[str, str] = {}
+        shortlinks: set[str] = set()
 
         if not isinstance(media, list):
-            return recovered
+            return alt_text, shortlinks
 
         for item in media:
             if not isinstance(item, dict):
                 continue
+            shortlink = item.get("url")
             url = item.get("media_url_https")
             alt = item.get("ext_alt_text")
+            if isinstance(shortlink, str) and shortlink:
+                shortlinks.add(shortlink)
             if isinstance(url, str) and isinstance(alt, str) and alt:
-                recovered[url] = alt
-        return recovered
+                alt_text[url] = alt
+        return alt_text, shortlinks
 
     @staticmethod
     def _bottom_cursor(data: dict[str, Any]) -> tuple[str | None, bool]:

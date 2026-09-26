@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
-from twscrape.models import TextLink, Tweet
+from twscrape.models import MediaPhoto, TextLink, Tweet
 
 from core.twscraper import Twscraper
 
@@ -46,7 +46,7 @@ def test_normalize_post_expands_tco_links() -> None:
         ],
     )
 
-    post = object.__new__(Twscraper)._normalize_post(tweet, {})
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
 
     assert post.text == (
         "INISDER GAMING IS LIVEEEEEEEEE https://www.youtube.com/watch?v=YirGnAwW5hU"
@@ -63,8 +63,51 @@ def test_normalize_post_only_expands_mapped_tco_links() -> None:
         ],
     )
 
-    post = object.__new__(Twscraper)._normalize_post(tweet, {})
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
 
     assert post.text == (
         "https://example.com/first https://t.co/unmapped https://example.com/second"
     )
+
+
+def test_normalize_post_removes_media_shortlinks() -> None:
+    tweet = tweet_with_links(
+        "Grand Theft Auto VI is on the cover of GameInformer https://t.co/s6v5vOkeNj",
+        [],
+    )
+    tweet.media.photos.append(
+        MediaPhoto(url="https://pbs.twimg.com/media/HTFPkt6W8AADmP9.jpg")
+    )
+
+    post = object.__new__(Twscraper)._normalize_post(
+        tweet, {}, {"https://t.co/s6v5vOkeNj"}
+    )
+
+    assert post.text == "Grand Theft Auto VI is on the cover of GameInformer"
+    assert post.media[0].url == "https://pbs.twimg.com/media/HTFPkt6W8AADmP9.jpg"
+
+
+def test_media_metadata_recovers_alt_text_and_shortlinks() -> None:
+    result = {
+        "legacy": {
+            "extended_entities": {
+                "media": [
+                    {
+                        "url": "https://t.co/photo",
+                        "media_url_https": "https://pbs.twimg.com/photo.jpg",
+                        "ext_alt_text": "Photo description",
+                    },
+                    {
+                        "url": "https://t.co/video",
+                        "media_url_https": "https://pbs.twimg.com/video.jpg",
+                        "ext_alt_text": None,
+                    },
+                ]
+            }
+        }
+    }
+
+    alt_text, shortlinks = Twscraper._media_metadata(result)
+
+    assert alt_text == {"https://pbs.twimg.com/photo.jpg": "Photo description"}
+    assert shortlinks == {"https://t.co/photo", "https://t.co/video"}
