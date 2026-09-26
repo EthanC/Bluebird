@@ -73,6 +73,8 @@ Environment variables are optional. Bluebird reads them from the process and fro
 | `LOG_DISCORD_WEBHOOK_LEVEL` | Discord log level | String | No | `"WARNING"` |
 | `INTERNET_ARCHIVE_EMAIL` | Internet Archive email; set with the password | String | Conditional | None |
 | `INTERNET_ARCHIVE_PASSWORD` | Internet Archive password; set with the email | String | Conditional | None |
+| `ZIGGY_HOST` | Ziggy hostname or IP address with an optional port; set with the identifier | String | Conditional | None |
+| `ZIGGY_IDENTIFIER` | Ziggy submission attribution, up to 128 characters | String | Conditional | None |
 | `TWSCRAPER_COOKIES` | X `auth_token` and `ct0` cookies | String | No | None |
 | `TWS_TELEMETRY` | Set to `0` to disable twscrape telemetry | String | No | `"0"` |
 | `SERVICE_FAILURE_THRESHOLD` | Failed requests before a source is disabled | Integer | No | `10` |
@@ -118,12 +120,25 @@ proxy = true
 | `exclude_reply` | Skip replies | Boolean | No | `false` |
 | `exclude_repost` | Skip reposts | Boolean | No | `false` |
 | `exclude_keyword` | Skip a listed substring; case-insensitive | String array | No | `[]` |
-| `archive` | Save notified posts to the Wayback Machine | Boolean | No | `false` |
+| `archive` | Submit notified posts to the configured archive backend | Boolean | No | `false` |
 | `proxy` | Replace X links with proxy links | Boolean | No | `false` |
 | `proxy_host` | Host used for proxy and archive links | String | No | `"nitter.app"` |
 | `proxy_name` | Label for the proxy button | String | No | `"Nitter"` |
 
-Archive requests use `proxy_host` because the Internet Archive rejects direct `x.com` captures. Credentials enable screenshots and My Web Archive; anonymous captures do not include either.
+Archive requests use `proxy_host` because the Internet Archive rejects direct `x.com` captures. Bluebird submits this proxy URL even when `proxy = false`.
+
+Without Ziggy configuration, Bluebird captures posts directly through the Internet Archive. Credentials enable screenshots and My Web Archive; anonymous captures do not include either. A completed direct capture adds an Internet Archive button to the Discord message.
+
+Set both Ziggy variables to send archive work to its HTTP queue instead:
+
+```dotenv
+ZIGGY_HOST=ziggy:9449
+ZIGGY_IDENTIFIER=bluebird
+```
+
+Bluebird submits to `http://<ZIGGY_HOST>/v1/queue`. Include the port in `ZIGGY_HOST` when Ziggy is not reachable on HTTP port 80. Ziggy takes precedence over Internet Archive credentials. A `202 Accepted` response confirms that Ziggy committed the URL to its queue, not that capture completed, so Bluebird logs the receipt and does not add an Internet Archive button. Bluebird retries network errors, rate limits, and server errors with a 30-second request timeout and honors `Retry-After`. If Ziggy rejects a submission or remains unavailable after the retries, Bluebird logs the failure, updates the post cursor, and continues. It never falls back to a direct capture.
+
+`ZIGGY_IDENTIFIER` records caller attribution; it does not authenticate Bluebird. Ziggy's listener has no authentication and should be reachable only over a trusted network.
 
 ## Twscraper Authentication
 

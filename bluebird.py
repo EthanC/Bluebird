@@ -16,7 +16,11 @@ from environs import env
 from loguru import logger
 from loguru_discord import DiscordSink, Intercept
 
-from core.archive import InternetArchiveSession
+from core.archive import (
+    InternetArchiveSession,
+    ZiggyClient,
+    validate_ziggy_configuration,
+)
 from core.bettertwitfix import BetterTwitFix
 from core.carryfeed import CarryFeed
 from core.config import XConfig, load_x_configs
@@ -66,6 +70,40 @@ def run_instance(
         failures.put((index, error))
 
 
+def initialize_archive_client(
+    enabled: bool,
+) -> InternetArchiveSession | ZiggyClient | None:
+    """Validate archive settings and create the selected shared client."""
+    ziggy_host: str | None = env.str("ZIGGY_HOST", None)
+    ziggy_identifier: str | None = env.str("ZIGGY_IDENTIFIER", None)
+
+    if (ziggy_host is None) != (ziggy_identifier is None):
+        raise ValueError("ZIGGY_HOST and ZIGGY_IDENTIFIER must be set together")
+
+    if ziggy_host is not None and ziggy_identifier is not None:
+        ziggy_host, ziggy_identifier = validate_ziggy_configuration(
+            ziggy_host, ziggy_identifier
+        )
+
+        return ZiggyClient(ziggy_host, ziggy_identifier) if enabled else None
+
+    archive_email: str | None = env.str("INTERNET_ARCHIVE_EMAIL", None)
+    archive_password: str | None = env.str("INTERNET_ARCHIVE_PASSWORD", None)
+
+    if (archive_email is None) != (archive_password is None):
+        raise ValueError(
+            "INTERNET_ARCHIVE_EMAIL and INTERNET_ARCHIVE_PASSWORD must be set together"
+        )
+
+    archive_account: InternetArchiveAccount | None = (
+        InternetArchiveAccount(archive_email, archive_password)
+        if archive_email is not None and archive_password is not None
+        else None
+    )
+
+    return InternetArchiveSession(archive_account) if enabled else None
+
+
 def start() -> None:
     """Initialize Bluebird and begin primary functionality."""
     loaded_environment: bool = bool(env.read_env(PROJECT_ROOT / ".env", recurse=False))
@@ -105,28 +143,6 @@ def start() -> None:
             raise SystemExit(1) from None
     elif twscraper_disabled:
         logger.warning("Disabled Twscraper data source service via DISABLE_TWSCRAPER")
-
-    try:
-        archive_email: str | None = env.str("INTERNET_ARCHIVE_EMAIL", None)
-        archive_password: str | None = env.str("INTERNET_ARCHIVE_PASSWORD", None)
-
-        if (archive_email is None) != (archive_password is None):
-            raise ValueError(
-                "INTERNET_ARCHIVE_EMAIL and INTERNET_ARCHIVE_PASSWORD "
-                "must be set together"
-            )
-
-        archive_account: InternetArchiveAccount | None = (
-            InternetArchiveAccount(archive_email, archive_password)
-            if archive_email is not None and archive_password is not None
-            else None
-        )
-    except Exception as e:
-        logger.opt(exception=e).critical(
-            "Failed to initialize Internet Archive credentials"
-        )
-
-        raise SystemExit(1) from e
 
     try:
         failure_threshold: int = env.int("SERVICE_FAILURE_THRESHOLD", 10)
@@ -201,14 +217,18 @@ def start() -> None:
     health_path: Path | None = (
         Path(health_path_value) if health_path_value is not None else None
     )
-    archive_session: InternetArchiveSession | None = None
+    archive_client: InternetArchiveSession | ZiggyClient | None = None
 
     try:
-        archive_session = (
-            InternetArchiveSession(archive_account)
-            if any(config.archive for config in configs)
-            else None
-        )
+        try:
+            archive_client = initialize_archive_client(
+                any(config.archive for config in configs)
+            )
+        except Exception as error:
+            logger.opt(exception=error).critical(
+                "Failed to initialize archive configuration"
+            )
+            raise SystemExit(1) from error
 
         if twscraper_runtime is not None and twscraper_cookies is not None:
             try:
@@ -228,7 +248,7 @@ def start() -> None:
             instance = XInstance(
                 [factory() for factory in source_factories],
                 state,
-                archive_session if config.archive else None,
+                archive_client if config.archive else None,
             )
             thread = Thread(
                 target=run_instance,
@@ -265,8 +285,8 @@ def start() -> None:
         for thread in threads:
             thread.join()
 
-        if archive_session:
-            archive_session.close()
+        if archive_client:
+            archive_client.close()
 
         logger.complete()
 

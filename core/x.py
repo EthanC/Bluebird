@@ -28,7 +28,7 @@ from clyde.timestamp import Timestamp
 from environs import env
 from loguru import logger
 
-from .archive import InternetArchiveSession
+from .archive import InternetArchiveSession, ZiggyClient
 from .config import XConfig
 from .format import Format
 from .state import StateStore, XCursor
@@ -154,15 +154,18 @@ class XInstance:
         self: Self,
         sources: Sequence[XDataSource],
         state: StateStore,
-        archive_session: InternetArchiveSession | None = None,
+        archive_session: InternetArchiveSession | ZiggyClient | None = None,
     ) -> None:
         """Initialize an X instance with its post data sources."""
         self.sources: tuple[XDataSource, ...] = tuple(sources)
         self.state: StateStore = state
-        self.archive_client: InternetArchiveSession | None = archive_session
+        self.archive_client: InternetArchiveSession | ZiggyClient | None = (
+            archive_session
+        )
         self.archive_options: InternetArchiveSaveOptions | None = (
             InternetArchiveSaveOptions(capture_screenshot=True, save_to_archive=True)
-            if archive_session and archive_session.authenticated
+            if isinstance(archive_session, InternetArchiveSession)
+            and archive_session.authenticated
             else None
         )
         self.index: int = 0
@@ -223,10 +226,15 @@ class XInstance:
         cooldown_configured: float = config.cooldown
 
         if self.archive_client:
-            mode: str = (
-                "authenticated" if self.archive_client.authenticated else "anonymous"
-            )
-            logger.info(f"{self.log()} Enabled {mode} Internet Archive captures")
+            if isinstance(self.archive_client, ZiggyClient):
+                logger.info(f"{self.log()} Enabled Ziggy archive queue submissions")
+            else:
+                mode: str = (
+                    "authenticated"
+                    if self.archive_client.authenticated
+                    else "anonymous"
+                )
+                logger.info(f"{self.log()} Enabled {mode} Internet Archive captures")
 
         while not stop.is_set():
             cooldown: float = cooldown_configured
@@ -455,6 +463,17 @@ class XInstance:
             return
 
         archive_target: str = Format.x_url(post.url, self.archive_base_url)
+
+        if isinstance(self.archive_client, ZiggyClient):
+            receipt: str | None = self.archive_client.save(archive_target)
+
+            if receipt:
+                logger.success(
+                    f"{self.log(post.username, post.post_id)} Queued post for archival "
+                    f"with Ziggy receipt {receipt}"
+                )
+
+            return None
 
         try:
             capture = self.archive_client.save(archive_target, self.archive_options)
