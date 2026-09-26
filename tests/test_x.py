@@ -2,10 +2,11 @@ from typing import cast
 
 import pytest
 from clyde import Webhook
+from clyde.components import Container, MediaGallery
 
 from core.archive import ZiggyClient
 from core.state import StateStore, XCursor
-from core.x import WebhookDelivery, XFeed, XInstance, XPost
+from core.x import WebhookDelivery, XFeed, XInstance, XMedia, XPost, XPostReference
 
 RECEIPT_ID = "8c829f35-d47f-40a6-93dd-3066b5f86a6d"
 TARGET_URL = "https://nitter.example/user/status/2"
@@ -145,3 +146,58 @@ def test_direct_capture_still_adds_archive_button(monkeypatch: pytest.MonkeyPatc
     assert events == ["notify", "archive"]
     assert client.targets == [TARGET_URL]
     assert archive_buttons == [(deliveries, archive_url)]
+
+
+@pytest.mark.parametrize("relationship", ["reply", "quote"])
+def test_notification_includes_related_post_media(
+    relationship: str, monkeypatch: pytest.MonkeyPatch
+):
+    class DiscordResponse:
+        def json(self):
+            return {"id": "message"}
+
+    class DiscordWebhook:
+        def __init__(self, **_kwargs):
+            self.components = []
+
+        def add_component(self, component):
+            self.components.append(component)
+
+        def set_wait(self, _wait):
+            pass
+
+        def execute(self):
+            return DiscordResponse()
+
+    instance = XInstance([], cast(StateStore, State()))
+    instance.webhook_urls = ("https://discord.com/api/webhooks/1/token",)
+    related = XPost(
+        post_id="1",
+        url="https://x.com/related/status/1",
+        username="related",
+        display_name="Related",
+        created_at=1,
+        source="Twscraper",
+        media=(XMedia("https://pbs.twimg.com/media/photo.jpg"),),
+    )
+    reference = XPostReference(username=related.username, post_id=related.post_id)
+    item = XPost(
+        post_id="2",
+        url="https://x.com/user/status/2",
+        username="user",
+        display_name="User",
+        created_at=2,
+        source="Twscraper",
+        reply_to=reference if relationship == "reply" else None,
+        quote_of=reference if relationship == "quote" else None,
+    )
+    monkeypatch.setattr(instance, "fetch_post", lambda *_args: related)
+    monkeypatch.setattr("core.x.Webhook", DiscordWebhook)
+
+    deliveries = instance.notify(item)
+
+    webhook = cast(DiscordWebhook, deliveries[0][0])
+    container = cast(Container, webhook.components[0])
+    assert any(
+        isinstance(component, MediaGallery) for component in container.components
+    )

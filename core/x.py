@@ -503,7 +503,9 @@ class XInstance:
 
             if reply_parent:
                 post_containers.append(
-                    self.build_post(reply_parent, True, include_footer=False)
+                    self.build_post(
+                        reply_parent, True, include_footer=False, include_media=True
+                    )
                 )
 
         post_containers.append(self.build_post(post, include_footer=False))
@@ -516,7 +518,9 @@ class XInstance:
             if quote_post:
                 original_post = quote_post
                 post_containers.append(
-                    self.build_post(quote_post, True, include_footer=False)
+                    self.build_post(
+                        quote_post, True, include_footer=False, include_media=True
+                    )
                 )
 
         if post.repost_of:
@@ -591,14 +595,21 @@ class XInstance:
                 raise RuntimeError("Discord webhook edit failed") from None
 
     def build_post(
-        self: Self, post: XPost, mini: bool = False, *, include_footer: bool = True
+        self: Self,
+        post: XPost,
+        mini: bool = False,
+        *,
+        include_footer: bool = True,
+        include_media: bool = False,
     ) -> Container:
         """Build a Discord Container Component for the provided X post."""
         head: Section = self.build_post_head(post, mini)
         body: TextDisplay | None = self.build_post_body(
             post, RELATED_TEXT_MAX_LENGTH if mini else MAIN_TEXT_MAX_LENGTH
         )
-        media: MediaGallery | None = None if mini else self.build_post_media(post)
+        media: MediaGallery | None = (
+            self.build_post_media(post) if include_media or not mini else None
+        )
 
         container: Container = Container(components=[head], accent_color="#000000")
 
