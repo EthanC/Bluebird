@@ -7,7 +7,13 @@ from twscrape.models import MediaPhoto, TextLink, Tweet
 from core.twscraper import Twscraper
 
 
-def tweet_with_links(text: str, links: list[TextLink]) -> Tweet:
+def tweet_with_links(
+    text: str,
+    links: list[TextLink],
+    *,
+    bio: str = "",
+    description_links: list[TextLink] | None = None,
+) -> Tweet:
     return cast(
         Tweet,
         SimpleNamespace(
@@ -16,7 +22,8 @@ def tweet_with_links(text: str, links: list[TextLink]) -> Tweet:
             user=SimpleNamespace(
                 username="_Tom_Henderson_",
                 displayname="Tom Henderson",
-                rawDescription="",
+                rawDescription=bio,
+                descriptionLinks=description_links or [],
                 profileImageUrl="",
             ),
             date=datetime(2026, 9, 26, tzinfo=UTC),
@@ -67,6 +74,34 @@ def test_normalize_post_only_expands_mapped_tco_links() -> None:
 
     assert post.text == (
         "https://example.com/first https://t.co/unmapped https://example.com/second"
+    )
+
+
+def test_normalize_post_expands_tco_links_in_bio() -> None:
+    tweet = tweet_with_links(
+        "Post text",
+        [],
+        bio=(
+            "Zombies news for zombies players // Donation and affiliate Linktree: "
+            "https://t.co/it9nz8l1an // Email for inquiries: "
+            "margwanetwork@gmail.com"
+        ),
+        description_links=[
+            TextLink(
+                url="https://linktr.ee/margwanetwork",
+                text="linktr.ee/margwanetwork",
+                tcourl="https://t.co/it9nz8l1an",
+            ),
+            TextLink(url="http://Margwa.net", text="Margwa.net", tcourl=None),
+        ],
+    )
+
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
+
+    assert post.bio == (
+        "Zombies news for zombies players // Donation and affiliate Linktree: "
+        "https://linktr.ee/margwanetwork // Email for inquiries: "
+        "margwanetwork@gmail.com"
     )
 
 

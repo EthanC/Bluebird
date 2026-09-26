@@ -452,10 +452,15 @@ class Twscraper:
         """Translate a twscrape tweet while preserving the outer repost event."""
         media: list[XMedia] = []
         text = tweet.rawContent
+        bio = tweet.user.rawDescription
 
         for link in tweet.links:
             if link.tcourl:
                 text = text.replace(link.tcourl, link.url)
+
+        for link in tweet.user.descriptionLinks:
+            if link.tcourl:
+                bio = bio.replace(link.tcourl, link.url)
 
         for shortlink in media_shortlinks:
             text = text.replace(shortlink, "")
@@ -482,7 +487,7 @@ class Twscraper:
             created_at=int(tweet.date.timestamp()),
             source=self.service_name,
             text=text or None,
-            bio=tweet.user.rawDescription or None,
+            bio=bio or None,
             profile_image_url=tweet.user.profileImageUrl or None,
             media=tuple(media),
             possibly_sensitive=bool(tweet.possibly_sensitive),
