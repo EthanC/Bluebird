@@ -446,6 +446,11 @@ class Twscraper:
     def _normalize_post(self: Self, tweet: Tweet, alt_text: Mapping[str, str]) -> XPost:
         """Translate a twscrape tweet while preserving the outer repost event."""
         media: list[XMedia] = []
+        text = tweet.rawContent
+
+        for link in tweet.links:
+            if link.tcourl:
+                text = text.replace(link.tcourl, link.url)
 
         for photo in tweet.media.photos:
             media.append(XMedia(photo.url, alt_text.get(photo.url)))
@@ -466,7 +471,7 @@ class Twscraper:
             display_name=tweet.user.displayname or tweet.user.username,
             created_at=int(tweet.date.timestamp()),
             source=self.service_name,
-            text=tweet.rawContent or None,
+            text=text or None,
             bio=tweet.user.rawDescription or None,
             profile_image_url=tweet.user.profileImageUrl or None,
             media=tuple(media),
