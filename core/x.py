@@ -509,19 +509,7 @@ class XInstance:
                 )
 
         post_containers.append(self.build_post(post, include_footer=False))
-
-        if post.quote_of:
-            quote_post: XPost | None = self.fetch_post(
-                post.quote_of.username, post.quote_of.post_id
-            )
-
-            if quote_post:
-                original_post = quote_post
-                post_containers.append(
-                    self.build_post(
-                        quote_post, True, include_footer=False, include_media=True
-                    )
-                )
+        quote_of: XPostReference | None = post.quote_of
 
         if post.repost_of:
             repost: XPost | None = self.fetch_post(
@@ -531,7 +519,23 @@ class XInstance:
             if repost:
                 original_post = repost
                 post_containers.append(
-                    self.build_post(repost, True, include_footer=False)
+                    self.build_post(
+                        repost, True, include_footer=False, include_media=True
+                    )
+                )
+                quote_of = repost.quote_of or quote_of
+
+        if quote_of:
+            quote_post: XPost | None = self.fetch_post(
+                quote_of.username, quote_of.post_id
+            )
+
+            if quote_post:
+                original_post = original_post or quote_post
+                post_containers.append(
+                    self.build_post(
+                        quote_post, True, include_footer=False, include_media=True
+                    )
                 )
 
         container: Container = post_containers[0]

@@ -1,8 +1,9 @@
+from dataclasses import replace
 from typing import cast
 
 import pytest
 from clyde import Webhook
-from clyde.components import Container, MediaGallery
+from clyde.components import ActionRow, Container, MediaGallery, Section, TextDisplay
 
 from core.archive import ZiggyClient
 from core.state import StateStore, XCursor
@@ -148,10 +149,8 @@ def test_direct_capture_still_adds_archive_button(monkeypatch: pytest.MonkeyPatc
     assert archive_buttons == [(deliveries, archive_url)]
 
 
-@pytest.mark.parametrize("relationship", ["reply", "quote"])
-def test_notification_includes_related_post_media(
-    relationship: str, monkeypatch: pytest.MonkeyPatch
-):
+@pytest.fixture
+def notification_instance(monkeypatch: pytest.MonkeyPatch) -> XInstance:
     class DiscordResponse:
         def json(self):
             return {"id": "message"}
@@ -171,6 +170,15 @@ def test_notification_includes_related_post_media(
 
     instance = XInstance([], cast(StateStore, State()))
     instance.webhook_urls = ("https://discord.com/api/webhooks/1/token",)
+    monkeypatch.setattr("core.x.Webhook", DiscordWebhook)
+    return instance
+
+
+@pytest.mark.parametrize("relationship", ["reply", "quote", "repost"])
+def test_notification_includes_related_post_media(
+    relationship: str, notification_instance: XInstance, monkeypatch: pytest.MonkeyPatch
+):
+    instance = notification_instance
     related = XPost(
         post_id="1",
         url="https://x.com/related/status/1",
@@ -188,16 +196,118 @@ def test_notification_includes_related_post_media(
         display_name="User",
         created_at=2,
         source="Twscraper",
+        is_repost=relationship == "repost",
         reply_to=reference if relationship == "reply" else None,
         quote_of=reference if relationship == "quote" else None,
+        repost_of=reference if relationship == "repost" else None,
     )
     monkeypatch.setattr(instance, "fetch_post", lambda *_args: related)
-    monkeypatch.setattr("core.x.Webhook", DiscordWebhook)
 
     deliveries = instance.notify(item)
 
-    webhook = cast(DiscordWebhook, deliveries[0][0])
+    webhook = deliveries[0][0]
+    assert isinstance(webhook.components, list)
     container = cast(Container, webhook.components[0])
     assert any(
         isinstance(component, MediaGallery) for component in container.components
     )
+
+
+@pytest.mark.parametrize(
+    ("quote_on_event", "quote_on_repost"), [(True, True), (True, False), (False, True)]
+)
+def test_reposted_quote_preserves_media_and_post_order(
+    quote_on_event: bool,
+    quote_on_repost: bool,
+    notification_instance: XInstance,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    instance = notification_instance
+    original = replace(
+        post(),
+        post_id="2110771275522314420",
+        url="https://x.com/InfinityWard/status/2110771275522314420",
+        username="InfinityWard",
+        display_name="Infinity Ward",
+        text="We draw the line where we need it.",
+        media=(XMedia("https://pbs.twimg.com/media/HUrxXwxbcAA19HA.jpg"),),
+    )
+    quote_reference = XPostReference(original.username, original.post_id)
+    reposted = replace(
+        post(),
+        post_id="2110797988742492464",
+        url="https://x.com/GBH_23/status/2110797988742492464",
+        username="GBH_23",
+        display_name="Graham Hagmaier",
+        text="Price returns in #MW4 📸",
+        media=(
+            XMedia("https://pbs.twimg.com/media/HUsPQsQa4AA-HXI.jpg"),
+            XMedia("https://pbs.twimg.com/media/HUsPWXdaQAEIKTJ.png"),
+        ),
+        is_quote=True,
+        quote_of=quote_reference if quote_on_repost else None,
+    )
+    item = replace(
+        original,
+        post_id="2110802730403147808",
+        url="https://x.com/InfinityWard/status/2110802730403147808",
+        created_at=1792089562,
+        text="RT @GBH_23: Price returns in #MW4 📸",
+        media=reposted.media,
+        is_repost=True,
+        is_quote=quote_on_event,
+        repost_of=XPostReference(reposted.username, reposted.post_id),
+        quote_of=quote_reference if quote_on_event else None,
+    )
+    posts = {related.post_id: related for related in (original, reposted)}
+    monkeypatch.setattr(
+        instance, "fetch_post", lambda _username, post_id: posts[post_id]
+    )
+
+    deliveries = instance.notify(item)
+
+    webhook = deliveries[0][0]
+    assert isinstance(webhook.components, list)
+    container = cast(Container, webhook.components[0])
+    galleries = [
+        component
+        for component in container.components
+        if isinstance(component, MediaGallery)
+    ]
+    assert [[media.media.url for media in gallery.items] for gallery in galleries] == [
+        [media.url for media in reposted.media],
+        [media.url for media in original.media],
+    ]
+    heads = [
+        component
+        for component in container.components
+        if isinstance(component, Section)
+    ]
+    assert len(heads) == 3
+    for head, username in zip(
+        heads, (item.username, reposted.username, original.username)
+    ):
+        assert f"https://x.com/{username}" in head.components[0].content
+    assert (
+        container.components.index(heads[1])
+        < container.components.index(galleries[0])
+        < container.components.index(heads[2])
+        < container.components.index(galleries[1])
+    )
+    text = [
+        component.content
+        for component in container.components
+        if isinstance(component, TextDisplay)
+    ]
+    assert text[:2] == [
+        ">>> Price returns in [#MW4](https://x.com/hashtag/MW4) 📸",
+        r">>> We draw the line where we need it\.",
+    ]
+    assert len(text) == 3
+    assert text[-1].startswith("-# Reposted ")
+    assert "1792089562" in text[-1]
+    outbound = cast(ActionRow, webhook.components[1])
+    assert [button.url for button in outbound.components[:2]] == [
+        item.url,
+        reposted.url,
+    ]
