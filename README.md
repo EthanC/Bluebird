@@ -152,3 +152,5 @@ DISABLE_TWSCRAPER=false
 ```
 
 Restart Bluebird after changing the cookies. It stores the session in `data/twscraper.db`; replace both cookies when the session expires.
+
+All instances share this account. Bluebird runs one Twscraper fetch at a time; time spent waiting for another instance does not count toward the fetch's 60-second execution deadline. HTTP 5xx responses without rate-limit exhaustion use the configured request retries without putting the account on a 15-minute cooldown. Genuine rate-limit locks remain in the database across restarts and expire at X's reset time.

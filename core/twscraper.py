@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import aclosing
@@ -22,8 +22,10 @@ from twscrape import (
     Response,
 )
 from twscrape.account import has_required_cookies
+from twscrape.api import GQL_FEATURES, GQL_URL
 from twscrape.models import Tweet, User, parse_tweet, parse_user
-from twscrape.utils import parse_cookies, to_old_rep
+from twscrape.queue_client import AbortReqError, QueueClient, ReqParams
+from twscrape.utils import encode_params, parse_cookies, to_old_rep
 
 from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
 from .state import XCursor
@@ -53,6 +55,89 @@ class _ConfirmedNotFound(Exception):
     """Indicate an explicit missing-resource response from X."""
 
 
+class _TwscraperQueueClient(QueueClient):
+    """Leave server failures to Bluebird's retries without cooling the account."""
+
+    _server_status: int | None = None
+
+    async def _check_rep(self: Self, rep: Response) -> None:
+        """Preserve rate-limit handling but abort retryable server responses."""
+        rate_limited = (
+            rep.headers.get("x-rate-limit-remaining") == "0"
+            and int(rep.headers.get("x-rate-limit-reset", -1)) > 0
+        )
+        if 500 <= rep.status_code < 600 and not rate_limited:
+            self._server_status = rep.status_code
+            # QueueClient catches AbortReqError and returns without imposing its
+            # default 15-minute lock. Its context manager still releases the lease.
+            raise AbortReqError()
+        await super()._check_rep(rep)
+
+    async def get(self: Self, url: str, params: ReqParams = None) -> Response | None:
+        """Surface an aborted server response to the adapter's bounded retries."""
+        rep = await super().get(url, params)
+        if self._server_status is not None:
+            raise _TwscraperUnavailable(
+                f"X returned HTTP {self._server_status} for queue {self.queue}"
+            )
+        return rep
+
+
+class _TwscraperAPI(API):
+    """Use Bluebird's queue client for single responses and paginated requests."""
+
+    async def _gql_item(
+        self: Self, op: str, kv: dict, ft: dict | None = None
+    ) -> Response | None:
+        """Acquire one queue lease and release it on success, error, or cancellation."""
+        queue = op.split("/")[-1]
+        params = {"variables": {**kv}, "features": {**GQL_FEATURES, **(ft or {})}}
+        if queue in ("SearchTimeline", "ListLatestTweetsTimeline"):
+            params["fieldToggles"] = {"withArticleRichContentState": False}
+        elif queue == "UserMedia":
+            params["fieldToggles"] = {"withArticlePlainText": False}
+        async with _TwscraperQueueClient(
+            self.pool, queue, self.debug, proxy=self.proxy
+        ) as client:
+            return await client.get(f"{GQL_URL}/{op}", params=encode_params(params))
+
+    async def _gql_items(
+        self: Self,
+        op: str,
+        kv: dict,
+        ft: dict | None = None,
+        limit: int = -1,
+        cursor_type: str = "Bottom",
+    ) -> AsyncIterator[Response]:
+        """Keep twscrape's pagination rules while releasing each page's lease."""
+        queue = op.split("/")[-1]
+        kv = {**kv}
+        count = 0
+        empty_pages = 0
+        seen: set[tuple[str, ...]] = set()
+        while True:
+            rep = await self._gql_item(op, kv, ft)
+            if rep is None:
+                return
+            data = rep.json()
+            entries = self._gql_entries(data)
+            cursor = self._get_cursor(data, cursor_type)
+            if self._is_stalled(queue, entries, cursor, seen):
+                logger.warning(f"{queue} pagination stalled, stopping")
+                return
+            rep, count, active = self._is_end(rep, queue, entries, cursor, count, limit)
+            if rep is not None:
+                empty_pages = 0
+                yield rep
+            else:
+                empty_pages += 1
+                if empty_pages >= 3:
+                    return
+            if cursor is None or (rep is not None and not active):
+                return
+            kv["cursor"] = cursor
+
+
 def validate_cookies(value: str) -> None:
     """Validate required cookie names without exposing their values."""
     try:
@@ -78,6 +163,7 @@ class TwscraperRuntime:
         self._thread: Thread | None = None
         self._ready: Event = Event()
         self._lock: Lock = Lock()
+        self._request_lock: Lock = Lock()
         self._closed: bool = False
         self._pool: AccountsPool | None = None
         self._api: API | None = None
@@ -105,7 +191,16 @@ class TwscraperRuntime:
         operation: Callable[[], Awaitable[_ResultT]],
         timeout: float = _FETCH_TIMEOUT_SECONDS,
     ) -> _ResultT:
-        """Run one operation on the owned loop and cancel it at the deadline."""
+        """Serialize account use, then apply the operation's execution deadline."""
+        # Workers share one cookie account. Waiting for another local worker is
+        # not an upstream failure and must not consume the request timeout.
+        with self._request_lock:
+            return self._run(operation, timeout)
+
+    def _run(
+        self: Self, operation: Callable[[], Awaitable[_ResultT]], timeout: float
+    ) -> _ResultT:
+        """Run admitted work on the owned loop and cancel it at the deadline."""
         with self._lock:
             loop: asyncio.AbstractEventLoop | None = self._loop
             if self._closed or loop is None or not loop.is_running():
@@ -175,7 +270,7 @@ class TwscraperRuntime:
             await pool.add_account_cookies(_ACCOUNT_LABEL, cookies)
 
         self._pool = pool
-        self._api = API(pool)
+        self._api = _TwscraperAPI(pool)
 
     def _protect_database(self: Self) -> None:
         """Create or restrict the credential database before SQLite opens it."""
