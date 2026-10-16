@@ -138,6 +138,8 @@ ZIGGY_IDENTIFIER=bluebird
 
 Bluebird submits to `http://<ZIGGY_HOST>/v1/queue`. Include the port in `ZIGGY_HOST` when Ziggy is not reachable on HTTP port 80. Ziggy takes precedence over Internet Archive credentials. A `202 Accepted` response confirms that Ziggy committed the URL to its queue, not that capture completed, so Bluebird logs the receipt and does not add an Internet Archive button. Bluebird retries network errors, rate limits, and server errors with a 30-second request timeout and honors `Retry-After`. If Ziggy rejects a submission or remains unavailable after the retries, Bluebird logs the failure, updates the post cursor, and continues. It never falls back to a direct capture.
 
+Ziggy failure logs use the `ERROR` level and include the target URL, queue endpoint, identifier, and exception reason. When a response is available, they also include its HTTP status and the first 1,000 characters of its body, with line breaks escaped. These errors go to the console and to the logging Discord webhook when configured at `ERROR` or a lower threshold. The startup log reports the configured endpoint and identifier; it does not check connectivity or queue admission.
+
 `ZIGGY_IDENTIFIER` records caller attribution; it does not authenticate Bluebird. Ziggy's listener has no authentication and should be reachable only over a trusted network.
 
 ## Twscraper Authentication

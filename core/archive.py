@@ -121,8 +121,9 @@ class ZiggyClient:
         response.raise_for_status()
 
         if response.status_code != 202:
-            raise ValueError(
-                f"Expected Ziggy to return 202 Accepted, got {response.status_code}"
+            raise niquests.HTTPError(
+                f"Expected Ziggy to return 202 Accepted, got {response.status_code}",
+                response=response,
             )
 
         return response
@@ -162,8 +163,9 @@ class ZiggyClient:
 
     def save(self: Self, target_url: str) -> str | None:
         """Queue one URL, returning its durable receipt when accepted."""
+        response: Response | None = None
         try:
-            response: Response = retry_request(
+            response = retry_request(
                 lambda: self._post(target_url),
                 self.retries,
                 self.retry_delay,
@@ -172,8 +174,25 @@ class ZiggyClient:
             )
             return self._receipt(response)
         except (niquests.RequestException, TypeError, ValueError) as error:
+            if (
+                isinstance(error, niquests.RequestException)
+                and error.response is not None
+            ):
+                response = error.response
+
+            response_details: str = ""
+            if response is not None:
+                body: str = response.text or ""
+                if len(body) > 1_000:
+                    body = body[:1_000] + " [truncated]"
+                response_details = (
+                    f"; HTTP {response.status_code}; response body={body!r}"
+                )
+
             logger.opt(exception=error).error(
-                f"Failed to submit archive target to Ziggy: {target_url}"
+                f"Failed to submit archive target to Ziggy: {target_url} "
+                f"via {self.api_url} (identifier={self.identifier!r}): "
+                f"{type(error).__name__}: {error}{response_details}"
             )
 
             return None

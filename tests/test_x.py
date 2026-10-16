@@ -1,6 +1,7 @@
 from dataclasses import replace
 from typing import cast
 
+import niquests
 import pytest
 from clyde import Webhook
 from clyde.components import ActionRow, Container, MediaGallery, Section, TextDisplay
@@ -147,6 +148,38 @@ def test_direct_capture_still_adds_archive_button(monkeypatch: pytest.MonkeyPatc
     assert events == ["notify", "archive"]
     assert client.targets == [TARGET_URL]
     assert archive_buttons == [(deliveries, archive_url)]
+
+
+def test_rejected_ziggy_submission_continues_and_advances_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    events = []
+    session = Session(events)
+    response = niquests.Response()
+    response.status_code = 403
+    response._content = b'{"error":"identifier is not allowed"}'
+
+    def reject(_url, **_kwargs):
+        events.append("archive")
+        return response
+
+    monkeypatch.setattr(session, "post", reject)
+    client = ZiggyClient("ziggy:9449", "bluebird", session, Limiter())
+    state = State()
+    instance = XInstance([], cast(StateStore, state), client)
+    configure(instance, post())
+    monkeypatch.setattr(instance, "notify", lambda _post: events.append("notify") or ())
+    monkeypatch.setattr(
+        instance,
+        "add_archive_button",
+        lambda *_args: pytest.fail("Archive button added after rejected submission"),
+    )
+
+    instance.watch_user("user")
+    instance.watch_user("user")
+
+    assert events == ["notify", "archive"]
+    assert state.cursor == XCursor(2, "2")
 
 
 @pytest.fixture

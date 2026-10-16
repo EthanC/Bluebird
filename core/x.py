@@ -227,7 +227,11 @@ class XInstance:
 
         if self.archive_client:
             if isinstance(self.archive_client, ZiggyClient):
-                logger.info(f"{self.log()} Enabled Ziggy archive queue submissions")
+                logger.info(
+                    f"{self.log()} Enabled Ziggy archive queue submissions "
+                    f"via {self.archive_client.api_url} "
+                    f"(identifier={self.archive_client.identifier!r})"
+                )
             else:
                 mode: str = (
                     "authenticated"
