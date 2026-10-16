@@ -21,6 +21,7 @@ from twscrape.http import HttpClient
 from twscrape.models import MediaPhoto, TextLink, Tweet
 from twscrape.queue_client import Ctx
 
+from core.format import Format
 from core.service import ServiceCircuitBreaker, ServiceDeferred, ServiceFailure
 from core.twscraper import Twscraper, TwscraperRuntime, _TwscraperUnavailable
 
@@ -446,6 +447,53 @@ def tweet_with_links(
             retweetedTweet=None,
         ),
     )
+
+
+def test_normalize_post_decodes_hearts_before_discord_formatting() -> None:
+    tweet = tweet_with_links("Example &lt;3 &lt;3", [])
+
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
+
+    assert post.text == "Example <3 <3"
+    assert Format.x_text(post.text, "https://x.com/") == r"Example \<3 \<3"
+
+
+@pytest.mark.parametrize(
+    ("encoded", "decoded"),
+    [
+        ("&lt;tag&gt; &amp; friends", "<tag> & friends"),
+        ("&quot;hello&quot; &#39;world&#39;", "\"hello\" 'world'"),
+        ("&#60;3 &#x1F499;", "<3 💙"),
+        ("literal &amp;lt;3", "literal &lt;3"),
+        ("plain <3 & 💙", "plain <3 & 💙"),
+        ("", ""),
+    ],
+)
+def test_normalize_post_decodes_text_fields_once(encoded: str, decoded: str) -> None:
+    tweet = tweet_with_links(encoded, [], bio=encoded)
+    tweet.user.displayname = encoded
+
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
+
+    assert post.text == (decoded or None)
+    assert post.bio == (decoded or None)
+    assert post.display_name == (decoded or tweet.user.username)
+
+
+def test_normalize_post_preserves_entities_in_expanded_urls() -> None:
+    url = "https://example.com/?a=1&copy=2&literal=&lt;3"
+    link = TextLink(url, None, "https://t.co/link")
+    tweet = tweet_with_links(
+        "&lt;3 https://t.co/link",
+        [link],
+        bio="&lt;3 https://t.co/link",
+        description_links=[link],
+    )
+
+    post = object.__new__(Twscraper)._normalize_post(tweet, {}, set())
+
+    assert post.text == f"<3 {url}"
+    assert post.bio == f"<3 {url}"
 
 
 def test_normalize_post_expands_tco_links() -> None:

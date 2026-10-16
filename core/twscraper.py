@@ -8,6 +8,7 @@ from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import aclosing
 from datetime import UTC, datetime
+from html import unescape
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any, Self, TypeVar
@@ -618,8 +619,9 @@ class Twscraper:
     ) -> XPost:
         """Translate a twscrape tweet while preserving the outer repost event."""
         media: list[XMedia] = []
-        text = tweet.rawContent
-        bio = tweet.user.rawDescription
+        # Decode X's HTML entities once, before inserting expanded URLs.
+        text = unescape(tweet.rawContent)
+        bio = unescape(tweet.user.rawDescription)
 
         for link in tweet.links:
             if link.tcourl:
@@ -650,7 +652,7 @@ class Twscraper:
             post_id=tweet.id_str,
             url=tweet.url.replace("twitter.com", "x.com"),
             username=tweet.user.username,
-            display_name=tweet.user.displayname or tweet.user.username,
+            display_name=unescape(tweet.user.displayname) or tweet.user.username,
             created_at=int(tweet.date.timestamp()),
             source=self.service_name,
             text=text or None,
