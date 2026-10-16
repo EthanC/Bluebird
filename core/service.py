@@ -17,6 +17,10 @@ class ServiceNotFound(Exception):
     """Indicate that a service successfully reported a missing resource."""
 
 
+class ServiceDeferred(Exception):
+    """Skip work without marking it successful or failed."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Permit:
     """Identify one operation admitted by a circuit breaker generation."""
@@ -56,6 +60,12 @@ class ServiceCircuitBreaker:
 
         try:
             result: ResultT = operation()
+        except ServiceDeferred:
+            with self._lock:
+                if permit.generation == self._generation and permit.probe:
+                    self._probe_in_flight = False
+
+            return None
         except ServiceNotFound:
             self._succeed(permit)
 

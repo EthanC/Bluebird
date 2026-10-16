@@ -3,12 +3,13 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping
+from concurrent.futures import CancelledError as FutureCancelledError
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import aclosing
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
-from time import sleep
 from typing import Any, Self, TypeVar
 
 from loguru import logger
@@ -21,18 +22,22 @@ from twscrape import (
     NoAccountError,
     Response,
 )
-from twscrape.account import has_required_cookies
+from twscrape.account import Account, has_required_cookies
 from twscrape.api import GQL_FEATURES, GQL_URL
 from twscrape.models import Tweet, User, parse_tweet, parse_user
 from twscrape.queue_client import AbortReqError, QueueClient, ReqParams
 from twscrape.utils import encode_params, parse_cookies, to_old_rep
 
-from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
+from .service import (
+    ServiceCircuitBreaker,
+    ServiceDeferred,
+    ServiceFailure,
+    ServiceNotFound,
+)
 from .state import XCursor
 from .x import XFeed, XMedia, XPost, XPostReference
 
 _ACCOUNT_LABEL = "bluebird"
-_ACCOUNT_WAIT_SECONDS = 10.0
 _FETCH_TIMEOUT_SECONDS = 60.0
 _START_TIMEOUT_SECONDS = 15.0
 _CANCEL_TIMEOUT_SECONDS = 10.0
@@ -53,6 +58,53 @@ class _TwscraperDataError(Exception):
 
 class _ConfirmedNotFound(Exception):
     """Indicate an explicit missing-resource response from X."""
+
+
+class _TwscraperCooldown(ServiceDeferred):
+    """Defer a queue until its persisted lock expires."""
+
+
+class _TwscraperStopped(ServiceDeferred):
+    """Stop pending adapter work during runtime shutdown."""
+
+
+class _TwscraperAccountsPool(AccountsPool):
+    """Persist server cooldowns while the runtime serializes in-process account use."""
+
+    def __init__(self: Self, db_file: str) -> None:
+        """Use the configured cookie account without durable in-use leases."""
+        super().__init__(db_file=db_file, raise_when_no_account=True)
+        self._reported_cooldowns: dict[str, datetime] = {}
+
+    def report_cooldown(self: Self, queue: str, until: datetime) -> None:
+        """Report each blocked queue and deadline once, without session data."""
+        if self._reported_cooldowns.get(queue) != until:
+            self._reported_cooldowns[queue] = until
+            logger.warning(
+                f"Twscraper queue {queue} has a persisted lock until {until.isoformat()}; "
+                "deferring this queue until expiry (cooldown or lease from an older "
+                "process)."
+            )
+
+    async def get_for_queue_or_wait(self: Self, queue: str) -> Account:
+        """Honor stored cooldowns without writing twscrape's 15-minute use lease."""
+        # Every API operation is admitted by TwscraperRuntime._request_lock.
+        # Only server-imposed cooldowns need to outlive that process. Writing an
+        # in-use lease here would strand the account after Docker stops or kills it.
+        account = await self.get_account(_ACCOUNT_LABEL)
+        if account is None or not account.active:
+            raise NoAccountError(
+                "Configured Twscraper cookie account is missing or inactive; "
+                "replace TWSCRAPER_COOKIES if the session has expired"
+            )
+        until = account.locks.get(queue)
+        if until is not None and until >= datetime.now(UTC):
+            self.report_cooldown(queue, until)
+            raise _TwscraperCooldown(
+                f"Queue {queue} is locked until {until.isoformat()}"
+            )
+        self._reported_cooldowns.pop(queue, None)
+        return account
 
 
 class _TwscraperQueueClient(QueueClient):
@@ -162,6 +214,7 @@ class TwscraperRuntime:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: Thread | None = None
         self._ready: Event = Event()
+        self._stopped: Event = Event()
         self._lock: Lock = Lock()
         self._request_lock: Lock = Lock()
         self._closed: bool = False
@@ -204,6 +257,8 @@ class TwscraperRuntime:
         with self._lock:
             loop: asyncio.AbstractEventLoop | None = self._loop
             if self._closed or loop is None or not loop.is_running():
+                if self._closed:
+                    raise _TwscraperStopped("Twscraper runtime has stopped")
                 raise _TwscraperUnavailable("Twscraper runtime is not running")
 
             cleanup_finished = Event()
@@ -213,6 +268,10 @@ class TwscraperRuntime:
 
         try:
             return future.result(timeout)
+        except FutureCancelledError:
+            if self._stopped.is_set():
+                raise _TwscraperStopped("Twscraper runtime has stopped") from None
+            raise
         except FutureTimeoutError:
             future.cancel()
             # QueueClient and raw generators release account and HTTP resources in
@@ -223,6 +282,11 @@ class TwscraperRuntime:
                 f"Twscraper request exceeded its {timeout:g}s deadline"
             ) from None
 
+    def wait_for_retry(self: Self, delay: float) -> None:
+        """Wait between retries, returning promptly when the runtime stops."""
+        if self._stopped.wait(delay):
+            raise _TwscraperStopped("Twscraper runtime has stopped")
+
     def close(self: Self) -> None:
         """Cancel pending work, finish cleanup, and join the event-loop thread."""
         with self._lock:
@@ -230,6 +294,7 @@ class TwscraperRuntime:
                 return
 
             self._closed = True
+            self._stopped.set()
             loop: asyncio.AbstractEventLoop | None = self._loop
             thread: Thread | None = self._thread
 
@@ -258,16 +323,21 @@ class TwscraperRuntime:
                 "TWSCRAPER_COOKIES must contain nonempty auth_token and ct0 cookies"
             )
 
-        pool = AccountsPool(
-            db_file=str(self.database_path),
-            raise_when_no_account=True,
-            wait_timeout=_ACCOUNT_WAIT_SECONDS,
-            wait_interval=1.0,
-        )
+        pool = _TwscraperAccountsPool(db_file=str(self.database_path))
         account = await pool.get_account(_ACCOUNT_LABEL)
 
         if account is None or account.cookies != parsed_cookies:
             await pool.add_account_cookies(_ACCOUNT_LABEL, cookies)
+            account = await pool.get_account(_ACCOUNT_LABEL)
+
+        if account is not None:
+            logger.info(
+                f"Twscraper stored account: active={account.active}, "
+                f"last_used={account.last_used}"
+            )
+            for queue, until in account.locks.items():
+                if until >= datetime.now(UTC):
+                    pool.report_cooldown(queue, until)
 
         self._pool = pool
         self._api = _TwscraperAPI(pool)
@@ -387,6 +457,8 @@ class Twscraper:
                 return self.runtime.run(operation)
             except _ConfirmedNotFound as error:
                 raise ServiceNotFound from error
+            except ServiceDeferred:
+                raise
             except Exception as error:
                 transient = isinstance(
                     error,
@@ -403,7 +475,7 @@ class Twscraper:
 
                 if transient and attempt < self.retries:
                     attempt += 1
-                    sleep(self.retry_delay)
+                    self.runtime.wait_for_retry(self.retry_delay)
                     continue
 
                 logger.opt(exception=error).error(

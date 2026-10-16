@@ -2,6 +2,7 @@
 
 import logging
 import os
+import signal
 from collections.abc import Callable
 from functools import partial
 from math import isfinite
@@ -218,6 +219,7 @@ def start() -> None:
         Path(health_path_value) if health_path_value is not None else None
     )
     archive_client: InternetArchiveSession | ZiggyClient | None = None
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
     try:
         try:
@@ -271,9 +273,12 @@ def start() -> None:
                 continue
 
             raise RuntimeError(f"X[{index}] worker stopped unexpectedly") from error
+
+        logger.info("Shutting down Bluebird")
     except KeyboardInterrupt:
         logger.info("Shutting down Bluebird")
     finally:
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
         stop.set()
 
         if health_path:

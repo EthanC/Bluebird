@@ -1,3 +1,9 @@
+import signal
+from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
 
 import bluebird
@@ -92,3 +98,42 @@ def test_disabled_archiving_creates_no_ziggy_client(monkeypatch):
     )
 
     assert bluebird.initialize_archive_client(False) is None
+
+
+def test_sigterm_runs_runtime_and_worker_cleanup(monkeypatch, tmp_path: Path):
+    import core.twscraper as twscraper
+
+    previous_handler = signal.getsignal(signal.SIGTERM)
+    runtime = Mock(database_path=tmp_path / "twscraper.db")
+    thread = Mock()
+
+    class StopOnWait(Event):
+        def wait(self, timeout=None):
+            handler = signal.getsignal(signal.SIGTERM)
+            assert callable(handler)
+            handler(signal.SIGTERM, None)
+            return self.is_set()
+
+    monkeypatch.setenv("TWSCRAPER_COOKIES", "auth_token=test; ct0=test")
+    monkeypatch.setenv("DISABLE_TWSCRAPER", "false")
+    for variable in ("DISABLE_BETTERTWITFIX", "DISABLE_CARRYFEED", "DISABLE_FXEMBED"):
+        monkeypatch.setenv(variable, "true")
+    monkeypatch.delenv("BLUEBIRD_HEALTHCHECK_FILE", raising=False)
+    monkeypatch.setattr(bluebird.env, "read_env", lambda *args, **kwargs: False)
+    monkeypatch.setattr(bluebird, "configure_logging", lambda: None)
+    monkeypatch.setattr(bluebird, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        bluebird, "load_x_configs", lambda _: (SimpleNamespace(archive=False),)
+    )
+    monkeypatch.setattr(bluebird, "StateStore", lambda path: SimpleNamespace(path=path))
+    monkeypatch.setattr(bluebird, "Thread", lambda **kwargs: thread)
+    monkeypatch.setattr(bluebird, "Event", StopOnWait)
+    monkeypatch.setattr(twscraper, "TwscraperRuntime", lambda _: runtime)
+
+    bluebird.start()
+
+    runtime.start.assert_called_once_with("auth_token=test; ct0=test")
+    runtime.close.assert_called_once_with()
+    thread.start.assert_called_once_with()
+    thread.join.assert_called_once_with()
+    assert signal.getsignal(signal.SIGTERM) == previous_handler

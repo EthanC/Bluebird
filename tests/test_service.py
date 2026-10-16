@@ -50,3 +50,41 @@ def test_unexpected_errors_count_as_failures() -> None:
         breaker.call(lambda: (_ for _ in ()).throw(RuntimeError("unexpected")))
 
     assert breaker._disabled_until is not None
+
+
+def test_deferral_does_not_change_failure_count() -> None:
+    breaker = service.ServiceCircuitBreaker("Test", 2, 10.0, 2)
+
+    def fail() -> None:
+        raise service.ServiceFailure
+
+    def defer() -> None:
+        raise service.ServiceDeferred
+
+    assert breaker.call(fail) is None
+    assert breaker.call(defer) is None
+    assert breaker._failures == 1
+    assert breaker._disabled_until is None
+    assert breaker.call(fail) is None
+    assert breaker._disabled_until is not None
+
+
+def test_deferred_probe_can_be_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = 100.0
+    monkeypatch.setattr(service, "monotonic", lambda: now)
+    breaker = service.ServiceCircuitBreaker("Test", 1, 10.0, 2)
+
+    def fail() -> None:
+        raise service.ServiceFailure
+
+    def defer() -> None:
+        raise service.ServiceDeferred
+
+    assert breaker.call(fail) is None
+    now = 111.0
+    assert breaker.call(defer) is None
+    assert breaker._failures == 1
+    assert breaker._disable_count == 1
+    assert breaker._disabled_until == 110.0
+    assert breaker.call(lambda: "restored") == "restored"
+    assert breaker._disabled_until is None

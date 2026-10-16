@@ -1,24 +1,27 @@
 import asyncio
 import json
+import subprocess
+import sys
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import aclosing
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from loguru import logger
 from twscrape import NoAccountError, Response
 from twscrape.account import Account
 from twscrape.http import HttpClient
 from twscrape.models import MediaPhoto, TextLink, Tweet
 from twscrape.queue_client import Ctx
 
-from core.service import ServiceCircuitBreaker, ServiceFailure
+from core.service import ServiceCircuitBreaker, ServiceDeferred, ServiceFailure
 from core.twscraper import Twscraper, TwscraperRuntime, _TwscraperUnavailable
 
 
@@ -34,8 +37,6 @@ def runtime(
     )
     runtime = TwscraperRuntime(tmp_path / "twscraper.db")
     runtime.start("auth_token=test; ct0=test")
-    # A persisted cooldown must fail promptly, rather than delaying the tests.
-    runtime.api.pool._wait_timeout = 0
     try:
         yield runtime
     finally:
@@ -144,15 +145,14 @@ def test_rate_limit_survives_restart(
     )
     monkeypatch.setattr(Ctx, "req", request)
 
-    with pytest.raises(NoAccountError):
+    with pytest.raises(ServiceDeferred):
         runtime.run(lambda: runtime.api.user_by_login_raw("example"))
 
     runtime.close()
     restarted = TwscraperRuntime(runtime.database_path)
     restarted.start("auth_token=test; ct0=test")
-    restarted.api.pool._wait_timeout = 0
     try:
-        with pytest.raises(NoAccountError):
+        with pytest.raises(ServiceDeferred):
             restarted.run(lambda: restarted.api.user_by_login_raw("example"))
         account = restarted.run(lambda: restarted.api.pool.get_account("bluebird"))
         assert account is not None
@@ -184,6 +184,131 @@ def test_cancelled_request_releases_account_before_next_worker(
     monkeypatch.setattr(Ctx, "req", request)
     assert runtime.run(lambda: runtime.api.user_by_login_raw("example")) is not None
     assert request.await_count == 1
+
+
+def test_abrupt_exit_does_not_leave_an_in_use_lock(runtime: TwscraperRuntime) -> None:
+    runtime.close()
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os, sys; from pathlib import Path; "
+            "from core.twscraper import TwscraperRuntime; "
+            "runtime = TwscraperRuntime(Path(sys.argv[1])); "
+            "runtime.start('auth_token=test; ct0=test'); "
+            "runtime.run(lambda: runtime.api.pool.get_for_queue_or_wait('UserByScreenName')); "
+            "os._exit(0)",
+            str(runtime.database_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+        capture_output=True,
+        timeout=15,
+    )
+    restarted = TwscraperRuntime(runtime.database_path)
+    restarted.start("auth_token=test; ct0=test")
+    try:
+        account = restarted.run(lambda: restarted.api.pool.get_account("bluebird"))
+        assert account is not None and account.locks == {}
+    finally:
+        restarted.close()
+
+
+def test_persisted_startup_lock_defers_without_disabling_service(
+    runtime: TwscraperRuntime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reset = int((datetime.now(UTC) + timedelta(minutes=15)).timestamp())
+    runtime.run(
+        lambda: runtime.api.pool.lock_until("bluebird", "UserByScreenName", reset)
+    )
+    runtime.close()
+    restarted = TwscraperRuntime(runtime.database_path)
+    messages = []
+    sink = logger.add(messages.append, level="WARNING")
+    try:
+        restarted.start("auth_token=test; ct0=test")
+        request = AsyncMock(return_value=response())
+        monkeypatch.setattr(Ctx, "req", request)
+        breaker = ServiceCircuitBreaker("Twscraper", 1, 3600, 24)
+        for index in range(6):
+            source = Twscraper(breaker, restarted)
+            source.retries = 0
+            assert source.fetch_user(f"user{index}") is None
+
+        assert breaker._failures == 0
+        assert breaker._disabled_until is None
+        assert request.await_count == 0
+        assert not [message for message in messages if message.record["level"].no >= 40]
+        assert (
+            len([message for message in messages if "UserByScreenName" in message]) == 1
+        )
+        account = restarted.run(lambda: restarted.api.pool.get_account("bluebird"))
+        assert account is not None
+        assert int(account.locks["UserByScreenName"].timestamp()) == reset
+
+        # Simulate the stored cooldown expiring without waiting fifteen minutes.
+        restarted.run(
+            lambda: restarted.api.pool.lock_until("bluebird", "UserByScreenName", 1)
+        )
+        assert (
+            restarted.run(lambda: restarted.api.user_by_login_raw("example"))
+            is not None
+        )
+        assert request.await_count == 1
+    finally:
+        restarted.close()
+        logger.remove(sink)
+
+
+def test_runtime_shutdown_cancels_active_and_queued_fetches_without_errors(
+    runtime: TwscraperRuntime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = Event()
+
+    async def request(self, method, url, params=None):
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(Ctx, "req", request)
+    breaker = ServiceCircuitBreaker("Twscraper", 1, 3600, 24)
+    source = Twscraper(breaker, runtime)
+    messages = []
+    sink = logger.add(messages.append, level="ERROR")
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            active = workers.submit(source.fetch_user, "example")
+            assert started.wait(5)
+            queued = workers.submit(source.fetch_user, "another")
+            runtime.close()
+            assert active.result(timeout=2) is None
+            assert queued.result(timeout=2) is None
+        assert breaker._failures == 0
+        assert not messages
+    finally:
+        logger.remove(sink)
+
+
+def test_runtime_shutdown_interrupts_retry_delay(
+    runtime: TwscraperRuntime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    waiting = Event()
+    original_wait = runtime.wait_for_retry
+
+    def wait(delay: float) -> None:
+        waiting.set()
+        original_wait(delay)
+
+    monkeypatch.setattr(runtime, "wait_for_retry", wait)
+    monkeypatch.setattr(Ctx, "req", AsyncMock(return_value=response(503)))
+    breaker = ServiceCircuitBreaker("Twscraper", 1, 3600, 24)
+    source = Twscraper(breaker, runtime)
+    source.retry_delay = 30
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        active = workers.submit(source.fetch_user, "example")
+        assert waiting.wait(5)
+        runtime.close()
+        assert active.result(timeout=2) is None
+    assert breaker._failures == 0
 
 
 def test_repeated_server_errors_exhaust_adapter_retries(
