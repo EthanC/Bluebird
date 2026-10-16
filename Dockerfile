@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG PYTHON_IMAGE=python:alpine
+ARG PYTHON_IMAGE=python:3.15-alpine
 
 FROM ${PYTHON_IMAGE} AS builder
 
@@ -9,7 +9,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /bluebird
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.1 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 

@@ -3,25 +3,25 @@ name = "bluebird"
 version = "3.0.0"
 description = "Monitor users on X (Twitter) and report new posts via Discord."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 authors = [{ name = "EthanC", email = "16727756+EthanC@users.noreply.github.com" }]
 dependencies = [
-  "archivist-py>=1.1.0",
-  "discord-clyde>=1.1.0",
+  "archivist-py>=1.4.0",
+  "discord-clyde>=1.2.0",
   "environs>=15.2.0",
   "loguru>=0.7.3",
-  "loguru-discord>=2.1.0",
-  "niquests>=3.21.1",
+  "loguru-discord>=2.2.0",
+  "niquests>=3.21.2",
   "twscrape>=0.20.1",
 ]
 
 [dependency-groups]
 dev = [
-  "coverage>=7.10.7",
-  "pytest>=8.4.2",
-  "pytest-cov>=7.0.0",
-  "ruff>=0.16.7",
-  "ty>=0.0.81",
+  "coverage>=7.16.2",
+  "pytest>=9.1.1",
+  "pytest-cov>=7.1.0",
+  "ruff>=0.17.1",
+  "ty>=0.0.88",
 ]
 
 [tool.ruff]
