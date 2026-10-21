@@ -477,6 +477,16 @@ class XInstance:
                     f"with Ziggy receipt {receipt}"
                 )
 
+            # Media is queued using its original X-hosted URL, never the proxy
+            for media_url in dict.fromkeys(media.url for media in post.media):
+                media_receipt: str | None = self.archive_client.save(media_url)
+
+                if media_receipt:
+                    logger.success(
+                        f"{self.log(post.username, post.post_id)} Queued media "
+                        f"{media_url} for archival with Ziggy receipt {media_receipt}"
+                    )
+
             return None
 
         try:
