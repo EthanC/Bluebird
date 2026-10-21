@@ -16,10 +16,10 @@ uv run ty check         # type check
 uv lock --check         # lockfile matches pyproject.toml
 ```
 
-On every push and pull request, CI (`.github/workflows/workflow.yaml`) runs the lockfile check, Ruff lint, the format check, `ty`, and the tests with coverage. Run the same checks before you finish a change.
+On every push and pull request, CI (`.github/workflows/workflow.yaml`) runs the lockfile check, Ruff lint, the format check, `ty`, and the tests with coverage. Run the same checks before you finish a change, and always run `uv run ruff format .` after your last edit to code or tests. Don't hand-wrap lines. Ruff's collapsing and wrapping decisions, including the 88-column limit, are easy to get wrong by eye, and CI fails on any unformatted file.
 
 - Change dependencies with `uv add`, `uv remove`, or `uv lock --upgrade-package`. Never edit `uv.lock` by hand.
-- Ruff enforces LF line endings. On a Windows checkout with `core.autocrlf=true`, `ruff format --check` flags every CRLF file even when its code is formatted. Git normalizes them to LF on commit. Write new files with LF endings.
+- Ruff enforces LF line endings. On a Windows checkout with `core.autocrlf=true`, `ruff format --check` flags every CRLF file even when its code is formatted. Git normalizes them to LF on commit. Write new files with LF endings. Because of this, a local `ruff format --check .` is noisy on Windows and can't confirm your changes are formatted. Run `uv run ruff format .` instead, then use `git diff --ignore-space-at-eol` to confirm that only intended lines changed.
 - `pyproject.toml` sets coverage `fail_under = 100`, but the suite is below that target and CI's coverage step is `continue-on-error`. Plain `uv run pytest` doesn't measure coverage. Add tests for the code you change instead of relying on the gate.
 - When the quality job passes on a push to `main`, CI publishes `ghcr.io/ethanc/bluebird:latest` and a SHA-tagged image.
 
