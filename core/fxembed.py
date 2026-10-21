@@ -12,7 +12,7 @@ from niquests import Response
 from .retry import retry_request, retry_transient_request
 from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
 from .state import XCursor
-from .x import XFeed, XMedia, XPost, XPostReference
+from .x import XArticle, XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
     r"https?://(?:www\.)?(?:twitter|x)\.com/([^/]+)/status/(\d+)"
@@ -374,6 +374,7 @@ class FxEmbed:
             is_quote=quote is not None,
             reply_to=reply_to,
             quote_of=self._quote_reference(quote),
+            article=XArticle.parse(data.get("article")),
         )
 
     @classmethod

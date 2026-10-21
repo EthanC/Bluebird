@@ -15,7 +15,7 @@ from niquests import Response
 from .retry import retry_request, retry_transient_request
 from .service import ServiceCircuitBreaker, ServiceFailure, ServiceNotFound
 from .state import XCursor
-from .x import XFeed, XMedia, XPost, XPostReference
+from .x import XArticle, XFeed, XMedia, XPost, XPostReference
 
 POST_URL_PATTERN: Pattern[str] = re.compile(
     r"https?://(?:www\.)?(?:twitter|x)\.com/([^/]+)/status/(\d+)"
@@ -285,6 +285,7 @@ class BetterTwitFix:
             or self._post_reference(quote_url),
             repost_of=self._embedded_post_reference(data.get("retweet"))
             or self._post_reference(repost_url),
+            article=XArticle.parse(data.get("article")),
         )
 
     @staticmethod

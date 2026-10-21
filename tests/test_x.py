@@ -8,7 +8,15 @@ from clyde.components import ActionRow, Container, MediaGallery, Section, TextDi
 
 from core.archive import ZiggyClient
 from core.state import StateStore, XCursor
-from core.x import WebhookDelivery, XFeed, XInstance, XMedia, XPost, XPostReference
+from core.x import (
+    WebhookDelivery,
+    XArticle,
+    XFeed,
+    XInstance,
+    XMedia,
+    XPost,
+    XPostReference,
+)
 
 RECEIPT_ID = "00000000-0000-4000-8000-000000000000"
 TARGET_URL = "https://nitter.example/user/status/2"
@@ -344,3 +352,116 @@ def test_reposted_quote_preserves_media_and_post_order(
         item.url,
         reposted.url,
     ]
+
+
+def test_compose_post_text_inlines_article_contents() -> None:
+    post = XPost(
+        post_id="1",
+        url="https://x.com/example_user/status/1",
+        username="example_user",
+        display_name="example_user",
+        created_at=1,
+        source="test",
+        text="📝 Example Title https://x.com/i/article/2",
+        article=XArticle.parse(
+            {
+                "title": "Example Title",
+                "content": {"blocks": [
+                        {"type": "unstyled", "text": "First"},
+                        {"type": "unstyled", "text": "Second"},
+                    ]},
+            }
+        ),
+    )
+
+    assert XInstance.compose_post_text(post) is None
+
+    article = XInstance([], cast(StateStore, object())).build_post_article(post, 1_000)
+
+    assert article is not None
+    assert article.content == ">>> ### Example Title\n\nFirst\n\nSecond"
+
+
+def test_build_post_article_preserves_formatting() -> None:
+    post = XPost(
+        post_id="1",
+        url="https://x.com/example_user/status/1",
+        username="example_user",
+        display_name="example_user",
+        created_at=1,
+        source="test",
+        article=XArticle.parse(
+            {
+                "title": "Notes",
+                "content": {
+                    "blocks": [
+                        {
+                            "type": "unstyled",
+                            "text": "Intro\n\nBug Fixes",
+                            "inlineStyleRanges": [
+                                {"offset": 7, "length": 9, "style": "Bold"}
+                            ],
+                        },
+                        {
+                            "type": "unordered-list-item",
+                            "text": "Fixed a bug.",
+                            "inlineStyleRanges": [
+                                {"offset": 8, "length": 3, "style": "Italic"}
+                            ],
+                        },
+                        {"type": "unordered-list-item", "text": "Fixed another."},
+                    ]
+                },
+            }
+        ),
+    )
+
+    article = XInstance([], cast(StateStore, object())).build_post_article(post, 1_000)
+
+    assert article is not None
+    assert article.content == (
+        ">>> ### Notes\n\n"
+        "Intro\n\n**Bug Fixes**\n\n"
+        "- Fixed a *bug*\\.\n- Fixed another\\."
+    )
+
+
+def test_article_parse_links_bare_urls() -> None:
+    article = XArticle.parse(
+        {
+            "content": {
+                "blocks": [
+                    {
+                        "type": "unstyled",
+                        "text": "See example.com/path",
+                        "data": {
+                            "urls": [
+                                {
+                                    "fromIndex": 4,
+                                    "toIndex": 20,
+                                    "text": "example.com/path",
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+    )
+
+    assert article is not None
+    assert article.blocks[0].segments[-1].url == "https://example.com/path"
+
+    post = XPost(
+        post_id="1",
+        url="https://x.com/example_user/status/1",
+        username="example_user",
+        display_name="example_user",
+        created_at=1,
+        source="test",
+        article=article,
+    )
+    rendered = XInstance([], cast(StateStore, object())).build_post_article(post, 1_000)
+
+    assert rendered is not None
+    assert rendered.content.endswith("[example.com/path](https://example.com/path)")

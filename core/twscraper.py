@@ -36,7 +36,7 @@ from .service import (
     ServiceNotFound,
 )
 from .state import XCursor
-from .x import XFeed, XMedia, XPost, XPostReference
+from .x import XArticle, XFeed, XMedia, XPost, XPostReference
 
 _ACCOUNT_LABEL = "bluebird"
 _FETCH_TIMEOUT_SECONDS = 60.0
@@ -146,7 +146,15 @@ class _TwscraperAPI(API):
         queue = op.split("/")[-1]
         params = {"variables": {**kv}, "features": {**GQL_FEATURES, **(ft or {})}}
         if queue in ("SearchTimeline", "ListLatestTweetsTimeline"):
-            params["fieldToggles"] = {"withArticleRichContentState": False}
+            params["fieldToggles"] = {
+                "withArticleRichContentState": True,
+                "withArticlePlainText": True,
+            }
+        elif queue == "TweetDetail":
+            params["fieldToggles"] = {
+                "withArticleRichContentState": True,
+                "withArticlePlainText": True,
+            }
         elif queue == "UserMedia":
             params["fieldToggles"] = {"withArticlePlainText": False}
         async with _TwscraperQueueClient(
@@ -547,7 +555,7 @@ class Twscraper:
                                 continue
                             alt_text, media_shortlinks = self._media_metadata(result)
                             post = self._normalize_post(
-                                tweet, alt_text, media_shortlinks
+                                tweet, alt_text, media_shortlinks, self._article(result)
                             )
                         except TypeError, ValueError, OverflowError:
                             malformed = True
@@ -606,7 +614,9 @@ class Twscraper:
 
         result = self._find_tweet_result(data, post_id)
         alt_text, media_shortlinks = self._media_metadata(result)
-        post = self._normalize_post(tweet, alt_text, media_shortlinks)
+        post = self._normalize_post(
+            tweet, alt_text, media_shortlinks, self._article(result)
+        )
         logger.debug(f"{self.log(username, post_id)} Fetched post data")
         logger.trace(f"{self.log(username, post_id)} {post=}")
         return post
@@ -616,6 +626,7 @@ class Twscraper:
         tweet: Tweet,
         alt_text: Mapping[str, str],
         media_shortlinks: Collection[str],
+        article: XArticle | None = None,
     ) -> XPost:
         """Translate a twscrape tweet while preserving the outer repost event."""
         media: list[XMedia] = []
@@ -666,7 +677,20 @@ class Twscraper:
             reply_to=self._reply_reference(tweet),
             quote_of=self._tweet_reference(tweet.quotedTweet),
             repost_of=self._tweet_reference(tweet.retweetedTweet),
+            article=article,
         )
+
+    @classmethod
+    def _article(cls, result: dict[str, Any] | None) -> XArticle | None:
+        """Recover article contents omitted by twscrape's tweet model."""
+        if result is None:
+            return None
+
+        tweet = result.get("tweet")
+        if isinstance(tweet, dict):
+            result = tweet
+
+        return XArticle.parse(cls._path(result, "article", "article_results", "result"))
 
     @staticmethod
     def _reply_reference(tweet: Tweet) -> XPostReference | None:

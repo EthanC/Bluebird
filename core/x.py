@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, replace
 from os import environ
 from threading import Event
-from typing import Protocol, Self, Sequence
+from typing import Any, Protocol, Self, Sequence
 from urllib.parse import urlsplit
 
 from archivist import ArchivistError, InternetArchiveSaveOptions
@@ -34,6 +34,10 @@ from .format import Format
 from .state import StateStore, XCursor
 
 USERNAME_PATTERN = re.compile(r"[A-Za-z0-9_]{1,15}")
+ARTICLE_URL_PATTERN = re.compile(
+    r"\s*https?://(?:www\.)?(?:x|twitter)\.com/i/article/\d+\S*"
+)
+LIST_KINDS = {"unordered-list-item", "ordered-list-item"}
 ALT_TEXT_MAX_LENGTH = 1_024
 MAIN_TEXT_MAX_LENGTH = 3_000
 RELATED_TEXT_MAX_LENGTH = 800
@@ -83,6 +87,190 @@ class XMedia:
 
 
 @dataclass(frozen=True, slots=True)
+class XArticleSegment:
+    """Represent a run of article text sharing the same inline formatting."""
+
+    text: str
+    styles: frozenset[str] = frozenset()
+    url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class XArticleBlock:
+    """Represent one formatted article paragraph, heading, or list item."""
+
+    kind: str
+    segments: tuple[XArticleSegment, ...]
+    depth: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class XArticle:
+    """Represent an X article attached to a post."""
+
+    title: str | None = None
+    text: str | None = None
+    blocks: tuple[XArticleBlock, ...] = ()
+
+    @classmethod
+    def parse(cls, data: object) -> "XArticle | None":
+        """Build an article from FxEmbed, BetterTwitFix, or X GraphQL article data."""
+        if not isinstance(data, dict):
+            return None
+
+        title: str | None = (
+            data.get("title") if isinstance(data.get("title"), str) else None
+        )
+        title = title.strip() if title else None
+        content: object = data.get("content") or data.get("content_state")
+        raw_blocks: object = content.get("blocks") if isinstance(content, dict) else None
+        entities: dict[str, dict[str, Any]] = cls._entities(
+            content.get("entityMap") if isinstance(content, dict) else None
+        )
+        blocks: tuple[XArticleBlock, ...] = ()
+
+        if isinstance(raw_blocks, list):
+            blocks = tuple(
+                block
+                for raw in raw_blocks
+                if isinstance(raw, dict) and (block := cls._block(raw, entities))
+            )
+
+        text: str | None = None
+
+        if blocks:
+            text = "\n\n".join(
+                "".join(segment.text for segment in block.segments).strip()
+                for block in blocks
+            )
+        else:
+            for key in ("plain_text", "text"):
+                if isinstance(data.get(key), str) and data[key].strip():
+                    text = data[key]
+
+                    break
+
+        if not text and isinstance(data.get("preview_text"), str):
+            text = data["preview_text"].strip()
+
+        text = text or None
+
+        return cls(title or None, text, blocks) if title or text else None
+
+    @staticmethod
+    def _entities(entity_map: object) -> dict[str, dict[str, Any]]:
+        """Index Draft.js entities by key, accepting dictionary or list maps."""
+        entities: dict[str, dict[str, Any]] = {}
+        items: list[tuple[object, object]] = []
+
+        if isinstance(entity_map, dict):
+            items = list(entity_map.items())
+        elif isinstance(entity_map, list):
+            items = [
+                (item.get("key"), item.get("value", item))
+                for item in entity_map
+                if isinstance(item, dict)
+            ]
+
+        for key, value in items:
+            if isinstance(value, dict):
+                entities[str(key)] = value
+
+        return entities
+
+    @staticmethod
+    def _block(
+        raw: dict[str, Any], entities: dict[str, dict[str, Any]]
+    ) -> XArticleBlock | None:
+        """Split a Draft.js block into segments at every formatting boundary."""
+        text: object = raw.get("text")
+        kind: object = raw.get("type")
+
+        if (
+            not isinstance(text, str)
+            or not isinstance(kind, str)
+            or kind == "atomic"
+            or not text.strip()
+        ):
+            return None
+
+        # Draft.js offsets count UTF-16 code units
+        units: bytes = text.encode("utf-16-le")
+        total: int = len(units) // 2
+        ranges: list[tuple[int, int, str, str | None]] = []
+
+        for item in raw.get("inlineStyleRanges") or ():
+            if isinstance(item, dict) and isinstance(item.get("style"), str):
+                offset, length = item.get("offset"), item.get("length")
+
+                if isinstance(offset, int) and isinstance(length, int) and length > 0:
+                    ranges.append((offset, offset + length, item["style"], None))
+
+        for item in raw.get("entityRanges") or ():
+            if not isinstance(item, dict):
+                continue
+
+            entity: dict[str, Any] = entities.get(str(item.get("key")), {})
+            entity_data: Any = entity.get("data")
+            url: Any = entity_data.get("url") if isinstance(entity_data, dict) else None
+            offset, length = item.get("offset"), item.get("length")
+
+            if (
+                str(entity.get("type")).upper() == "LINK"
+                and isinstance(url, str)
+                and _valid_https_url(url)
+                and isinstance(offset, int)
+                and isinstance(length, int)
+                and length > 0
+            ):
+                ranges.append((offset, offset + length, "Link", url))
+
+        block_data: Any = raw.get("data")
+        urls: Any = block_data.get("urls") if isinstance(block_data, dict) else None
+
+        # Bare links such as "example.com/path" are listed without an entity
+        for item in urls if isinstance(urls, list) else ():
+            if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+                continue
+
+            link_text: str = item["text"].strip()
+            link_url: str = (
+                link_text if "://" in link_text else f"https://{link_text}"
+            )
+            start, end = item.get("fromIndex"), item.get("toIndex")
+
+            if (
+                _valid_https_url(link_url)
+                and isinstance(start, int)
+                and isinstance(end, int)
+                and start < end
+            ):
+                ranges.append((start, end, "Link", link_url))
+
+        points: list[int] = sorted(
+            {0, total, *(min(max(point, 0), total) for r in ranges for point in r[:2])}
+        )
+        segments: list[XArticleSegment] = []
+
+        for start, end in zip(points, points[1:]):
+            piece: str = units[start * 2 : end * 2].decode("utf-16-le", "replace")
+            covering = [r for r in ranges if r[0] <= start and r[1] >= end]
+            link: str | None = next((r[3] for r in covering if r[2] == "Link"), None)
+            styles: frozenset[str] = frozenset(r[2] for r in covering if r[2] != "Link")
+
+            if segments and segments[-1].styles == styles and segments[-1].url == link:
+                piece = segments.pop().text + piece
+
+            segments.append(XArticleSegment(piece, styles, link))
+
+        depth: object = raw.get("depth")
+
+        return XArticleBlock(
+            kind, tuple(segments), depth if isinstance(depth, int) else 0
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class XPost:
     """Represent a source-neutral X post."""
 
@@ -103,6 +291,7 @@ class XPost:
     reply_to: XPostReference | None = None
     quote_of: XPostReference | None = None
     repost_of: XPostReference | None = None
+    article: XArticle | None = None
 
     def __post_init__(self) -> None:
         """Validate normalized X post data."""
@@ -625,6 +814,9 @@ class XInstance:
         body: TextDisplay | None = self.build_post_body(
             post, RELATED_TEXT_MAX_LENGTH if mini else MAIN_TEXT_MAX_LENGTH
         )
+        article: TextDisplay | None = self.build_post_article(
+            post, RELATED_TEXT_MAX_LENGTH if mini else MAIN_TEXT_MAX_LENGTH
+        )
         media: MediaGallery | None = (
             self.build_post_media(post) if include_media or not mini else None
         )
@@ -633,6 +825,9 @@ class XInstance:
 
         if body and not post.is_repost:
             container.add_component(body)
+
+        if article and not post.is_repost:
+            container.add_component(article)
 
         if media and not post.is_repost:
             container.add_component(media)
@@ -702,7 +897,7 @@ class XInstance:
 
     def build_post_body(self: Self, post: XPost, max_length: int) -> TextDisplay | None:
         """Build a Discord Text Display Component for the provided X post."""
-        text: str | None = post.text
+        text: str | None = self.compose_post_text(post)
 
         if not text:
             return
@@ -721,6 +916,179 @@ class XInstance:
         logger.trace(f"{self.log(post.username, post.post_id)} {body=}")
 
         return body
+
+    @staticmethod
+    def compose_post_text(post: XPost) -> str | None:
+        """Return post text without the link to its attached article."""
+        text: str | None = post.text
+        article: XArticle | None = post.article
+
+        if not article or not (article.title or article.text):
+            return text
+
+        remainder: str = ARTICLE_URL_PATTERN.sub("", text or "").strip()
+        title: str = (article.title or "").strip()
+
+        # Drop text that only repeats the article title
+        if remainder.removeprefix("📝").strip() in ("", title):
+            return None
+
+        return remainder
+
+    def build_post_article(
+        self: Self, post: XPost, max_length: int
+    ) -> TextDisplay | None:
+        """Build a Discord Text Display Component for the post's article."""
+        article: XArticle | None = post.article
+
+        if not article:
+            return
+
+        title: str | None = (
+            Markdown.header_3(
+                Format.x_text(article.title, self.base_url, rewrite_urls=self.proxy)
+                or ""
+            )
+            if article.title
+            else None
+        )
+        # Reserve room for the title, the paragraph break, and the quote marker
+        body_length: int = (
+            max_length - len(title or "") - 2 - len(Markdown.block_quote(""))
+        )
+        body: str | None = self.format_article_body(article, body_length)
+        content: str = "\n\n".join(part for part in (title, body) if part)
+
+        if not content:
+            return
+
+        logger.debug(f"{self.log(post.username, post.post_id)} Built article for post")
+
+        return TextDisplay(content=Markdown.block_quote(content))
+
+    def format_article_body(
+        self: Self, article: XArticle, max_length: int
+    ) -> str | None:
+        """Render article blocks as Discord Markdown, truncating between blocks."""
+        plain: str | None = Format.x_text(
+            article.text, self.base_url, max_length=max_length, rewrite_urls=self.proxy
+        )
+
+        if not article.blocks:
+            return plain
+
+        # Consecutive list items of one kind are rendered as a single list
+        rendered: list[str] = []
+        index: int = 0
+
+        while index < len(article.blocks):
+            block: XArticleBlock = article.blocks[index]
+            group: list[XArticleBlock] = [block]
+
+            if block.kind in LIST_KINDS:
+                while (
+                    index + len(group) < len(article.blocks)
+                    and article.blocks[index + len(group)].kind == block.kind
+                ):
+                    group.append(article.blocks[index + len(group)])
+
+            index += len(group)
+            items: list[str | dict[str, str | int]] = [
+                {
+                    "value": self.format_article_inline(item),
+                    "indent": min(item.depth, 10),
+                }
+                for item in group
+            ]
+
+            if block.kind == "unordered-list-item":
+                rendered.append(Markdown.bulleted_list(items))
+            elif block.kind == "ordered-list-item":
+                rendered.append(Markdown.numbered_list(items))
+            else:
+                rendered.append(self.format_article_block(block))
+
+        result: str = ""
+
+        for position, piece in enumerate(rendered):
+            candidate: str = f"{result}\n\n{piece}" if result else piece
+            reserve: int = 5 if position + 1 < len(rendered) else 0
+
+            if len(candidate) + reserve > max_length:
+                # A first block that cannot fit falls back to plain truncated text
+                return f"{result}\n\n..." if result else plain
+
+            result = candidate
+
+        return result or None
+
+    def format_article_block(self: Self, block: XArticleBlock) -> str:
+        """Render one non-list article block."""
+        text: str = self.format_article_inline(block)
+
+        match block.kind:
+            case "header-one":
+                return Markdown.header_1(text)
+            case "header-two":
+                return Markdown.header_2(text)
+            case "header-three" | "header-four" | "header-five" | "header-six":
+                return Markdown.header_3(text)
+            case "code-block":
+                return Markdown.code_block(
+                    "".join(segment.text for segment in block.segments)
+                )
+            case "blockquote":
+                return Markdown.block_quote(text, multi_line=False)
+
+        return text
+
+    def format_article_inline(self: Self, block: XArticleBlock) -> str:
+        """Render a block's segments with their inline formatting."""
+        return "".join(
+            self.format_article_segment(segment) for segment in block.segments
+        )
+
+    def format_article_segment(self: Self, segment: XArticleSegment) -> str:
+        """Escape one segment and wrap each of its lines in its styles."""
+        lines: list[str] = []
+
+        for line in segment.text.split("\n"):
+            core: str = line.strip()
+
+            if not core:
+                lines.append(line)
+
+                continue
+
+            lead: str = line[: len(line) - len(line.lstrip())]
+            trail: str = line[len(line.rstrip()) :]
+            styles: frozenset[str] = segment.styles
+
+            if "Code" in styles:
+                formatted: str = Markdown.inline_code(core)
+            else:
+                formatted = (
+                    Format.x_text(core, self.base_url, rewrite_urls=self.proxy) or ""
+                )
+
+                if segment.url:
+                    formatted = Markdown.masked_link(
+                        # Discord shows escapes in link labels literally
+                        re.sub(r"([\\\[\]])", r"\\\1", core),
+                        segment.url,
+                    )
+                if "Bold" in styles:
+                    formatted = Markdown.bold(formatted)
+                if "Italic" in styles:
+                    formatted = Markdown.italics(formatted)
+                if "Underline" in styles:
+                    formatted = Markdown.underline(formatted)
+                if "Strikethrough" in styles:
+                    formatted = Markdown.strikethrough(formatted)
+
+            lines.append(f"{lead}{formatted}{trail}")
+
+        return "\n".join(lines)
 
     def build_post_media(self: Self, post: XPost) -> MediaGallery | None:
         """Build a Discord Media Gallery Component for the provided X post."""
