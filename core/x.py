@@ -123,7 +123,9 @@ class XArticle:
         )
         title = title.strip() if title else None
         content: object = data.get("content") or data.get("content_state")
-        raw_blocks: object = content.get("blocks") if isinstance(content, dict) else None
+        raw_blocks: object = (
+            content.get("blocks") if isinstance(content, dict) else None
+        )
         entities: dict[str, dict[str, Any]] = cls._entities(
             content.get("entityMap") if isinstance(content, dict) else None
         )
@@ -234,9 +236,7 @@ class XArticle:
                 continue
 
             link_text: str = item["text"].strip()
-            link_url: str = (
-                link_text if "://" in link_text else f"https://{link_text}"
-            )
+            link_url: str = link_text if "://" in link_text else f"https://{link_text}"
             start, end = item.get("fromIndex"), item.get("toIndex")
 
             if (

@@ -366,10 +366,12 @@ def test_compose_post_text_inlines_article_contents() -> None:
         article=XArticle.parse(
             {
                 "title": "Example Title",
-                "content": {"blocks": [
+                "content": {
+                    "blocks": [
                         {"type": "unstyled", "text": "First"},
                         {"type": "unstyled", "text": "Second"},
-                    ]},
+                    ]
+                },
             }
         ),
     )
