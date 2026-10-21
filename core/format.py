@@ -43,12 +43,30 @@ class Format:
             position = token.end()
 
         formatted.append(cls.escape_markdown(text[position:]))
+
         result: str = "".join(formatted)
 
-        if max_length is not None and len(result) > max_length:
+        if max_length is None or len(result) <= max_length:
+            return result
+
+        # Truncate piece by piece so entity links are never cut mid-syntax
+        limit: int = max(max_length - 3, 0)
+        result = ""
+
+        for index, piece in enumerate(formatted):
+            if len(result) + len(piece) > limit:
+                # Plain text pieces are at even indexes; links are at odd ones
+                if index % 2 == 0:
+                    result += piece[: limit - len(result)]
+
+                break
+
+            result += piece
+
+        if not result:
             result = cls.escape_markdown(text)
 
-        return cls._truncate(result, max_length)
+        return cls._truncate(f"{result.rstrip(chr(92))}...", max_length)
 
     @classmethod
     def _token(cls, token: Match[str], base_url: str, rewrite_urls: bool) -> str:

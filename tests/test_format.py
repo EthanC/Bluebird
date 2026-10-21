@@ -29,6 +29,17 @@ def test_handles_empty_and_truncated_text() -> None:
     assert Format.x_text("abcdef", "https://x.com/", max_length=0) == ""
 
 
+def test_keeps_entity_links_when_truncating() -> None:
+    formatted = Format.x_text(
+        "Hello #example " + "word " * 40, "https://x.com/", max_length=80
+    )
+
+    assert formatted is not None
+    assert len(formatted) <= 80
+    assert "[#example](https://x.com/hashtag/example)" in formatted
+    assert formatted.endswith("...")
+
+
 def test_rewrites_only_x_urls() -> None:
     assert (
         Format.x_url("https://twitter.com/user/status/1?ref=x", "https://proxy.test/")

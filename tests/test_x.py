@@ -258,34 +258,34 @@ def test_reposted_quote_preserves_media_and_post_order(
     instance = notification_instance
     original = replace(
         post(),
-        post_id="2110771275522314420",
-        url="https://x.com/InfinityWard/status/2110771275522314420",
-        username="InfinityWard",
-        display_name="Infinity Ward",
-        text="We draw the line where we need it.",
-        media=(XMedia("https://pbs.twimg.com/media/HUrxXwxbcAA19HA.jpg"),),
+        post_id="1000000000000000001",
+        url="https://x.com/example_studio/status/1000000000000000001",
+        username="example_studio",
+        display_name="Example Studio",
+        text="Our announcement goes here.",
+        media=(XMedia("https://pbs.twimg.com/media/example1.jpg"),),
     )
     quote_reference = XPostReference(original.username, original.post_id)
     reposted = replace(
         post(),
-        post_id="2110797988742492464",
-        url="https://x.com/GBH_23/status/2110797988742492464",
-        username="GBH_23",
-        display_name="Graham Hagmaier",
-        text="Price returns in #MW4 📸",
+        post_id="1000000000000000002",
+        url="https://x.com/example_dev/status/1000000000000000002",
+        username="example_dev",
+        display_name="Example Dev",
+        text="Update returns in #example 📸",
         media=(
-            XMedia("https://pbs.twimg.com/media/HUsPQsQa4AA-HXI.jpg"),
-            XMedia("https://pbs.twimg.com/media/HUsPWXdaQAEIKTJ.png"),
+            XMedia("https://pbs.twimg.com/media/example2.jpg"),
+            XMedia("https://pbs.twimg.com/media/example3.png"),
         ),
         is_quote=True,
         quote_of=quote_reference if quote_on_repost else None,
     )
     item = replace(
         original,
-        post_id="2110802730403147808",
-        url="https://x.com/InfinityWard/status/2110802730403147808",
-        created_at=1792089562,
-        text="RT @GBH_23: Price returns in #MW4 📸",
+        post_id="1000000000000000003",
+        url="https://x.com/example_studio/status/1000000000000000003",
+        created_at=1700000000,
+        text="RT @example_dev: Update returns in #example 📸",
         media=reposted.media,
         is_repost=True,
         is_quote=quote_on_event,
@@ -333,12 +333,12 @@ def test_reposted_quote_preserves_media_and_post_order(
         if isinstance(component, TextDisplay)
     ]
     assert text[:2] == [
-        ">>> Price returns in [#MW4](https://x.com/hashtag/MW4) 📸",
-        r">>> We draw the line where we need it\.",
+        ">>> Update returns in [#example](https://x.com/hashtag/example) 📸",
+        r">>> Our announcement goes here\.",
     ]
     assert len(text) == 3
     assert text[-1].startswith("-# Reposted ")
-    assert "1792089562" in text[-1]
+    assert "1700000000" in text[-1]
     outbound = cast(ActionRow, webhook.components[1])
     assert [button.url for button in outbound.components[:2]] == [
         item.url,
