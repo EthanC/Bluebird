@@ -128,7 +128,12 @@ class _TwscraperQueueClient(QueueClient):
 
     async def get(self: Self, url: str, params: ReqParams = None) -> Response | None:
         """Surface an aborted server response to the adapter's bounded retries."""
-        rep = await super().get(url, params)
+        try:
+            rep = await super().get(url, params)
+        except AbortReqError:
+            if self._server_status is None:
+                raise
+            rep = None
         if self._server_status is not None:
             raise _TwscraperUnavailable(
                 f"X returned HTTP {self._server_status} for queue {self.queue}"
@@ -140,23 +145,25 @@ class _TwscraperAPI(API):
     """Use Bluebird's queue client for single responses and paginated requests."""
 
     async def _gql_item(
-        self: Self, op: str, kv: dict, ft: dict | None = None
+        self: Self,
+        op: str,
+        kv: dict,
+        ft: dict | None = None,
+        toggles: dict | None = None,
     ) -> Response | None:
         """Acquire one queue lease and release it on success, error, or cancellation."""
         queue = op.split("/")[-1]
         params = {"variables": {**kv}, "features": {**GQL_FEATURES, **(ft or {})}}
-        if queue in ("SearchTimeline", "ListLatestTweetsTimeline"):
-            params["fieldToggles"] = {
-                "withArticleRichContentState": True,
-                "withArticlePlainText": True,
-            }
-        elif queue == "TweetDetail":
-            params["fieldToggles"] = {
+        field_toggles: dict = {**(toggles or {})}
+        if queue in ("SearchTimeline", "ListLatestTweetsTimeline", "TweetDetail"):
+            field_toggles |= {
                 "withArticleRichContentState": True,
                 "withArticlePlainText": True,
             }
         elif queue == "UserMedia":
-            params["fieldToggles"] = {"withArticlePlainText": False}
+            field_toggles["withArticlePlainText"] = False
+        if field_toggles:
+            params["fieldToggles"] = field_toggles
         async with _TwscraperQueueClient(
             self.pool, queue, self.debug, proxy=self.proxy
         ) as client:
@@ -169,6 +176,7 @@ class _TwscraperAPI(API):
         ft: dict | None = None,
         limit: int = -1,
         cursor_type: str = "Bottom",
+        toggles: dict | None = None,
     ) -> AsyncIterator[Response]:
         """Keep twscrape's pagination rules while releasing each page's lease."""
         queue = op.split("/")[-1]
@@ -177,7 +185,7 @@ class _TwscraperAPI(API):
         empty_pages = 0
         seen: set[tuple[str, ...]] = set()
         while True:
-            rep = await self._gql_item(op, kv, ft)
+            rep = await self._gql_item(op, kv, ft, toggles)
             if rep is None:
                 return
             data = rep.json()
