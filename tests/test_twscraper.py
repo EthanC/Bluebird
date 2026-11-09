@@ -449,6 +449,61 @@ def tweet_with_links(
     )
 
 
+def test_fetch_user_skips_post_twscrape_cannot_parse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def pages(user_id: int, limit: int):
+        yield response()
+
+    raw_tweets: dict[str, dict[str, Any]] = {
+        "123": {"user_id_str": "1"},
+        "124": {"user_id_str": "1"},
+    }
+
+    def parse(raw_tweet: dict[str, Any], normalized: dict[str, Any]) -> Tweet:
+        if raw_tweet is raw_tweets["124"]:
+            # twscrape 0.20.1 raised this for a reply to a user without a name.
+            raise KeyError("name")
+        return tweet_with_links("Example", [])
+
+    monkeypatch.setattr(
+        "core.twscraper.parse_user",
+        lambda response: SimpleNamespace(id=1, id_str="1", username="example"),
+    )
+    monkeypatch.setattr(
+        "core.twscraper.to_old_rep", lambda data: {"tweets": raw_tweets}
+    )
+    monkeypatch.setattr("core.twscraper.Tweet", SimpleNamespace(parse=parse))
+    monkeypatch.setattr(
+        Twscraper,
+        "_timeline_groups",
+        classmethod(
+            lambda cls, data: ([([{"id": "124"}, {"id": "123"}], False)], False)
+        ),
+    )
+    monkeypatch.setattr(
+        Twscraper, "_tweet_result_id", classmethod(lambda cls, result: result["id"])
+    )
+    monkeypatch.setattr(
+        Twscraper, "_bottom_cursor", staticmethod(lambda data: (None, True))
+    )
+    runtime = SimpleNamespace(
+        api=SimpleNamespace(
+            user_by_login_raw=AsyncMock(return_value=response()),
+            user_tweets_and_replies_raw=pages,
+        )
+    )
+    source = Twscraper(
+        ServiceCircuitBreaker("Twscraper", 10, 3600, 24),
+        cast(TwscraperRuntime, runtime),
+    )
+
+    feed = asyncio.run(source._fetch_user("example", None))
+
+    assert [post.post_id for post in feed.posts] == ["123"]
+    assert not feed.complete
+
+
 def test_normalize_post_decodes_hearts_before_discord_formatting() -> None:
     tweet = tweet_with_links("Example &lt;3 &lt;3", [])
 

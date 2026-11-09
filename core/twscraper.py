@@ -565,7 +565,17 @@ class Twscraper:
                             post = self._normalize_post(
                                 tweet, alt_text, media_shortlinks, self._article(result)
                             )
-                        except TypeError, ValueError, OverflowError:
+                        # twscrape's parsers index raw dicts directly, so a payload
+                        # missing a field raises LookupError. Skip only that post.
+                        except (
+                            LookupError,
+                            TypeError,
+                            ValueError,
+                            OverflowError,
+                        ) as error:
+                            logger.opt(exception=error).debug(
+                                f"{self.log(profile.username, post_id)} Skipped malformed post"
+                            )
                             malformed = True
                             continue
 
