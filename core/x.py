@@ -39,6 +39,7 @@ ARTICLE_URL_PATTERN = re.compile(
 )
 LIST_KINDS = {"unordered-list-item", "ordered-list-item"}
 ALT_TEXT_MAX_LENGTH = 1_024
+MEDIA_GALLERY_MAX_ITEMS = 10
 MAIN_TEXT_MAX_LENGTH = 3_000
 RELATED_TEXT_MAX_LENGTH = 800
 WebhookDelivery = tuple[Webhook, str]
@@ -58,6 +59,18 @@ def _valid_https_url(url: str, hosts: set[str] | None = None) -> bool:
         and parsed.password is None
         and (hosts is None or parsed.hostname.casefold() in hosts)
     )
+
+
+def _webhook_error(error: Exception, webhook_url: str) -> str:
+    """Describe a webhook failure without exposing the webhook token."""
+    detail: str = str(error).strip() or "No details"
+    path_parts: list[str] = urlsplit(webhook_url).path.split("/")
+    token: str = path_parts[4] if len(path_parts) > 4 else ""
+
+    if token:
+        detail = detail.replace(token, "<redacted>")
+
+    return f"{type(error).__name__}: {detail}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -766,8 +779,10 @@ class XInstance:
             try:
                 response = webhook.execute()
                 message_id = response.json().get("id")
-            except Exception:
-                raise RuntimeError("Discord webhook delivery failed") from None
+            except Exception as error:
+                raise RuntimeError(
+                    f"Discord webhook delivery failed: {_webhook_error(error, webhook_url)}"
+                ) from None
 
             if not isinstance(message_id, str) or not message_id:
                 raise RuntimeError("Discord webhook delivery returned no message ID")
@@ -798,8 +813,10 @@ class XInstance:
 
             try:
                 webhook.edit_message(message_id)
-            except Exception:
-                raise RuntimeError("Discord webhook edit failed") from None
+            except Exception as error:
+                raise RuntimeError(
+                    f"Discord webhook edit failed: {_webhook_error(error, webhook.url)}"
+                ) from None
 
     def build_post(
         self: Self,
@@ -817,8 +834,8 @@ class XInstance:
         article: TextDisplay | None = self.build_post_article(
             post, RELATED_TEXT_MAX_LENGTH if mini else MAIN_TEXT_MAX_LENGTH
         )
-        media: MediaGallery | None = (
-            self.build_post_media(post) if include_media or not mini else None
+        media: tuple[MediaGallery, ...] = (
+            self.build_post_media(post) if include_media or not mini else ()
         )
 
         container: Container = Container(components=[head], accent_color="#000000")
@@ -830,7 +847,7 @@ class XInstance:
             container.add_component(article)
 
         if media and not post.is_repost:
-            container.add_component(media)
+            container.add_component(list(media))
 
         if include_footer:
             container.add_component(
@@ -1090,10 +1107,10 @@ class XInstance:
 
         return "\n".join(lines)
 
-    def build_post_media(self: Self, post: XPost) -> MediaGallery | None:
-        """Build a Discord Media Gallery Component for the provided X post."""
+    def build_post_media(self: Self, post: XPost) -> tuple[MediaGallery, ...]:
+        """Build Discord Media Gallery Components for the provided X post."""
         if not post.media:
-            return
+            return ()
 
         items: list[MediaGalleryItem] = []
 
@@ -1110,12 +1127,14 @@ class XInstance:
 
             items.append(item)
 
-        if not items:
-            return
+        media: tuple[MediaGallery, ...] = tuple(
+            MediaGallery(items=items[start : start + MEDIA_GALLERY_MAX_ITEMS])
+            for start in range(0, len(items), MEDIA_GALLERY_MAX_ITEMS)
+        )
 
-        media: MediaGallery = MediaGallery(items=items)
-
-        logger.debug(f"{self.log(post.username, post.post_id)} Built media for post")
+        logger.debug(
+            f"{self.log(post.username, post.post_id)} Built {len(media):,} media galleries for post"
+        )
         logger.trace(f"{self.log(post.username, post.post_id)} {media=}")
 
         return media

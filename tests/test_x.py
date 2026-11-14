@@ -4,7 +4,14 @@ from typing import cast
 import niquests
 import pytest
 from clyde import Webhook
-from clyde.components import ActionRow, Container, MediaGallery, Section, TextDisplay
+from clyde.components import (
+    ActionRow,
+    Container,
+    LinkButton,
+    MediaGallery,
+    Section,
+    TextDisplay,
+)
 
 from core.archive import ZiggyClient
 from core.state import StateStore, XCursor
@@ -213,6 +220,76 @@ def notification_instance(monkeypatch: pytest.MonkeyPatch) -> XInstance:
     instance.webhook_urls = ("https://discord.com/api/webhooks/1/token",)
     monkeypatch.setattr("core.x.Webhook", DiscordWebhook)
     return instance
+
+
+def test_media_beyond_gallery_limit_continues_in_another_gallery():
+    instance = XInstance([], cast(StateStore, State()))
+    media = tuple(
+        XMedia(f"https://example.com/media/{index}.jpg") for index in range(21)
+    )
+    item = replace(post(), media=media)
+
+    container = instance.build_post(item)
+
+    galleries = [
+        component
+        for component in container.components
+        if isinstance(component, MediaGallery)
+    ]
+    assert [[entry.media.url for entry in gallery.items] for gallery in galleries] == [
+        [entry.url for entry in media[:10]],
+        [entry.url for entry in media[10:20]],
+        [entry.url for entry in media[20:]],
+    ]
+
+
+def test_delivery_failure_reports_redacted_cause(
+    notification_instance: XInstance, monkeypatch: pytest.MonkeyPatch
+):
+    def execute(_self):
+        raise niquests.ConnectionError(
+            "Max retries exceeded with url: /api/webhooks/1/token?wait=true"
+        )
+
+    monkeypatch.setattr("core.x.Webhook.execute", execute)
+
+    with pytest.raises(RuntimeError) as raised:
+        notification_instance.notify(post())
+
+    message = str(raised.value)
+    assert message == (
+        "Discord webhook delivery failed: ConnectionError: Max retries exceeded "
+        "with url: /api/webhooks/1/<redacted>?wait=true"
+    )
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__
+
+
+def test_archive_edit_failure_reports_redacted_cause(monkeypatch: pytest.MonkeyPatch):
+    def edit_message(_self, _message_id):
+        raise niquests.HTTPError(
+            "Discord webhook request failed: status_code=400, reason='Bad Request'\n"
+            "Discord API error 50035: Invalid Form Body"
+        )
+
+    webhook = Webhook(url="https://discord.com/api/webhooks/1/token")
+    webhook.add_component(
+        ActionRow(components=[LinkButton(label="View", url="https://x.com/")])
+    )
+    monkeypatch.setattr(Webhook, "edit_message", edit_message)
+    instance = XInstance([], cast(StateStore, State()))
+
+    with pytest.raises(RuntimeError) as raised:
+        instance.add_archive_button(
+            ((webhook, "message"),), "https://web.archive.org/web/1/https://x.com/"
+        )
+
+    assert str(raised.value) == (
+        "Discord webhook edit failed: HTTPError: Discord webhook request failed: "
+        "status_code=400, reason='Bad Request'\n"
+        "Discord API error 50035: Invalid Form Body"
+    )
+    assert raised.value.__cause__ is None
 
 
 @pytest.mark.parametrize("relationship", ["reply", "quote", "repost"])
